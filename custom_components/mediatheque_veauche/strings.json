@@ -1,0 +1,42 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Médiathèque de Veauche",
+        "description": "Entrez vos identifiants de la médiathèque de Veauche.",
+        "data": {
+          "username": "Identifiant",
+          "password": "Mot de passe",
+          "scan_interval": "Intervalle de mise à jour (minutes)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigurer les identifiants",
+        "description": "Modifiez vos identifiants de la médiathèque de Veauche.",
+        "data": {
+          "username": "Identifiant",
+          "password": "Mot de passe"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à la médiathèque.",
+      "invalid_auth": "Identifiants invalides.",
+      "unknown": "Erreur inattendue."
+    },
+    "abort": {
+      "already_configured": "Cette médiathèque est déjà configurée.",
+      "reconfigure_successful": "Identifiants mis à jour avec succès."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Intervalle de mise à jour (minutes)"
+        }
+      }
+    }
+  }
+}
