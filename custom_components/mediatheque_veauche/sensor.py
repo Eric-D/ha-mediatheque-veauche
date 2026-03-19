@@ -63,7 +63,10 @@ async def async_setup_entry(
         MediathequeFinCotisation(coordinator, entry),
     ])
 
-    await coordinator.async_request_refresh()
+    # Fire and forget — don't block platform setup
+    entry.async_create_background_task(
+        hass, coordinator.async_request_refresh(), "mediatheque_first_refresh"
+    )
 
 
 class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
