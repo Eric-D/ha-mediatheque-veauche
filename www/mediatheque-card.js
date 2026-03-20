@@ -166,6 +166,33 @@ class MediathequeCard extends HTMLElement {
             font-weight: 500;
             white-space: nowrap;
           }
+          .book-cover-wrapper {
+            position: relative;
+            flex-shrink: 0;
+            cursor: pointer;
+          }
+          .book-cover-preview {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 999;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+          }
+          .book-cover-preview.active {
+            display: flex;
+          }
+          .book-cover-preview img {
+            max-width: 80vw;
+            max-height: 80vh;
+            border-radius: 8px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+            object-fit: contain;
+          }
           .empty-state {
             padding: 24px 16px;
             text-align: center;
@@ -206,8 +233,10 @@ class MediathequeCard extends HTMLElement {
 
         html += `
           <div class="book-row">
-            <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
-                 onerror="this.src='${PLACEHOLDER_SVG}'" />
+            <div class="book-cover-wrapper" data-cover="${coverSrc}">
+              <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
+                   onerror="this.src='${PLACEHOLDER_SVG}'" />
+            </div>
             <div class="book-info">
               <div class="book-title" title="${loan.titre}">${loan.titre}</div>
               <div class="book-date">Retour : ${loan.due_date_display}</div>
@@ -223,8 +252,33 @@ class MediathequeCard extends HTMLElement {
       html += `</div>`;
     }
 
-    html += `</ha-card>`;
+    html += `
+        <div class="book-cover-preview" id="cover-preview">
+          <img src="" alt="" />
+        </div>
+      </ha-card>`;
     this.innerHTML = html;
+
+    // Cover click to preview
+    const preview = this.querySelector('#cover-preview');
+    const previewImg = preview.querySelector('img');
+
+    this.querySelectorAll('.book-cover-wrapper').forEach(wrapper => {
+      wrapper.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const src = wrapper.dataset.cover;
+        if (preview.classList.contains('active')) {
+          preview.classList.remove('active');
+        } else {
+          previewImg.src = src;
+          preview.classList.add('active');
+        }
+      });
+    });
+
+    preview.addEventListener('click', () => {
+      preview.classList.remove('active');
+    });
   }
 }
 
