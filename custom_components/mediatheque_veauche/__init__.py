@@ -24,24 +24,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     if DOMAIN + "_static_registered" in hass.data:
         return True
 
-    component_dir = Path(__file__).parent
-    static_paths = []
-
-    # Card JS
-    card_path = component_dir / "www" / "mediatheque-card.js"
+    # Card JS — icons are served via brand/ directory (brands proxy API)
+    card_path = Path(__file__).parent / "www" / "mediatheque-card.js"
     if card_path.is_file():
-        static_paths.append(StaticPathConfig(CARD_URL, str(card_path), True))
-
-    # Icons
-    for filename in ("icon.png", "icon@2x.png", "logo.png", "logo@2x.png"):
-        path = component_dir / filename
-        if path.is_file():
-            static_paths.append(
-                StaticPathConfig(f"/{DOMAIN}/{filename}", str(path), True)
-            )
-
-    if static_paths:
-        await hass.http.async_register_static_paths(static_paths)
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(card_path), True)]
+        )
 
     add_extra_js_url(hass, CARD_URL)
     hass.data[DOMAIN + "_static_registered"] = True
