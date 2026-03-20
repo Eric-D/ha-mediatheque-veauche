@@ -10,13 +10,6 @@ const MONTHS_FR = [
 
 const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='76' viewBox='0 0 52 76'%3E%3Crect width='52' height='76' fill='%23e0e0e0' rx='4'/%3E%3Ctext x='26' y='42' text-anchor='middle' font-family='sans-serif' font-size='20' fill='%239e9e9e'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E`;
 
-function getStatusBadge(daysLeft) {
-  if (daysLeft < 0) return { label: '✗ En retard', color: '#b71c1c', bg: '#ffcdd2' };
-  if (daysLeft <= 3) return { label: '⚠ Urgent', color: '#d84315', bg: '#ffe0b2' };
-  if (daysLeft <= 7) return { label: '⚡ Bientôt', color: '#f57f17', bg: '#fff9c4' };
-  return { label: '✓ OK', color: '#2e7d32', bg: '#c8e6c9' };
-}
-
 function getDaysChip(daysLeft) {
   if (daysLeft < 0) return { text: `${Math.abs(daysLeft)}j de retard`, color: '#b71c1c', bg: '#ffcdd2' };
   if (daysLeft === 0) return { text: "Aujourd'hui", color: '#d84315', bg: '#ffe0b2' };
@@ -152,18 +145,11 @@ class MediathequeCard extends HTMLElement {
             margin-top: 4px;
             flex-wrap: wrap;
           }
-          .badge-status {
-            font-size: 0.72em;
+          .badge-days {
+            font-size: 0.75em;
             padding: 2px 8px;
             border-radius: 10px;
             font-weight: 600;
-            white-space: nowrap;
-          }
-          .badge-days {
-            font-size: 0.72em;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-weight: 500;
             white-space: nowrap;
           }
           .book-cover-wrapper {
@@ -227,7 +213,6 @@ class MediathequeCard extends HTMLElement {
       `;
 
       for (const loan of sorted) {
-        const status = getStatusBadge(loan.days_left);
         const chip = getDaysChip(loan.days_left);
         const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
@@ -241,7 +226,6 @@ class MediathequeCard extends HTMLElement {
               <div class="book-title" title="${loan.titre}">${loan.titre}</div>
               <div class="book-date">Retour : ${loan.due_date_display}</div>
               <div class="book-badges">
-                <span class="badge-status" style="color:${status.color};background:${status.bg}">${status.label}</span>
                 <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
               </div>
             </div>
