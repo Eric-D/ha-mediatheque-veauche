@@ -1,7 +1,7 @@
 """Sensor platform for Médiathèque de Veauche."""
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 import logging
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
@@ -171,10 +171,15 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
         self._attr_name = "Fin cotisation Médiathèque"
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> date | None:
         if self.coordinator.data:
             sub = self.coordinator.data.get("subscription", {})
-            return sub.get("expiry_date")
+            iso_date = sub.get("expiry_date")
+            if iso_date:
+                try:
+                    return datetime.strptime(iso_date, "%Y-%m-%d").date()
+                except ValueError:
+                    pass
         return None
 
     @property

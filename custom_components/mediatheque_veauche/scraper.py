@@ -315,6 +315,7 @@ class MediathequeVeaucheClient:
                 text = td.get_text(strip=True)
                 match = date_pattern.search(text)
                 if match:
+                    _LOGGER.debug("Found subscription date: %s", text)
                     # Get the label from the previous sibling td
                     prev_td = td.find_previous_sibling("td")
                     label = prev_td.get_text(strip=True) if prev_td else ""
