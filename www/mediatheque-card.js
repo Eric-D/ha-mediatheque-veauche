@@ -3,6 +3,9 @@
  * Affiche les emprunts de la médiathèque par membre de la famille.
  */
 
+if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
+window.MEDIATHEQUE_CARD_LOADED = true;
+
 const MEDIATHEQUE_CARD_VERSION = '1.3.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
@@ -575,3 +578,5 @@ window.customCards.push({
   name: 'Médiathèque - A rendre',
   description: 'Affiche les livres à rendre cette semaine',
 });
+
+} // end MEDIATHEQUE_CARD_LOADED guard
