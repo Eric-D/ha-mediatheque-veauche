@@ -554,8 +554,12 @@ class MediathequeDueCard extends HTMLElement {
   }
 }
 
-customElements.define('mediatheque-card', MediathequeCard);
-customElements.define('mediatheque-due-card', MediathequeDueCard);
+if (!customElements.get('mediatheque-card')) {
+  customElements.define('mediatheque-card', MediathequeCard);
+}
+if (!customElements.get('mediatheque-due-card')) {
+  customElements.define('mediatheque-due-card', MediathequeDueCard);
+}
 
 window.customCards = window.customCards || [];
 window.customCards.push({
