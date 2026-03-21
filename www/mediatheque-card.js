@@ -366,6 +366,21 @@ class MediathequeDueCard extends HTMLElement {
     const livres = attrs.livres || [];
     const count = parseInt(state.state) || 0;
 
+    // Get total from total_entity config or auto-detect
+    let totalEmprunts = null;
+    const totalEntityId = this._config.total_entity;
+    if (totalEntityId && this._hass.states[totalEntityId]) {
+      totalEmprunts = parseInt(this._hass.states[totalEntityId].state) || 0;
+    } else {
+      // Auto-detect: replace _due_week with _total
+      const autoId = entityId.replace('_due_week', '_total');
+      if (this._hass.states[autoId]) {
+        totalEmprunts = parseInt(this._hass.states[autoId].state) || 0;
+      }
+    }
+
+    const badgeText = totalEmprunts !== null ? `${count} / ${totalEmprunts}` : `${count}`;
+
     let html = `
       <ha-card>
         <style>
@@ -477,7 +492,7 @@ class MediathequeDueCard extends HTMLElement {
 
         <div class="mediatheque-header">
           <span class="mediatheque-title">${title}</span>
-          <span class="mediatheque-total">${count} livre${count > 1 ? 's' : ''}</span>
+          <span class="mediatheque-total">${badgeText}</span>
         </div>
     `;
 
