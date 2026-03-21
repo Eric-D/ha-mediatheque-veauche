@@ -45,10 +45,42 @@ class MediathequeCard extends HTMLElement {
     }
 
     const attrs = state.attributes;
+    const titre = this._config.title || 'Médiathèque de Veauche';
+
+    // Loading state: keep previous render or show spinner
+    if (state.state === 'unavailable' || state.state === 'unknown') {
+      if (this._lastHtml) return;
+      this.innerHTML = `
+        <ha-card>
+          <div class="mediatheque-header">
+            <span class="mediatheque-title">${titre}</span>
+          </div>
+          <div style="padding:32px 16px;text-align:center">
+            <div class="mediatheque-loader"></div>
+            <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">Chargement des emprunts...</div>
+          </div>
+          <style>
+            .mediatheque-loader {
+              width: 36px;
+              height: 36px;
+              border: 3px solid var(--divider-color, #e0e0e0);
+              border-top: 3px solid var(--primary-color, #03a9f4);
+              border-radius: 50%;
+              margin: 0 auto;
+              animation: mediatheque-spin 1s linear infinite;
+            }
+            @keyframes mediatheque-spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+        </ha-card>`;
+      return;
+    }
+
     const membres = attrs.membres || {};
     const compte = attrs.compte || '';
     const total = attrs.total || 0;
-    const title = this._config.title || 'Médiathèque de Veauche';
+    const title = titre;
 
     // Sort members: account holder first, then alphabetically
     const sortedMembers = Object.keys(membres).sort((a, b) => {
@@ -242,6 +274,7 @@ class MediathequeCard extends HTMLElement {
         </div>
       </ha-card>`;
     this.innerHTML = html;
+    this._lastHtml = true;
 
     // Cover click to preview
     const preview = this.querySelector('#cover-preview');
