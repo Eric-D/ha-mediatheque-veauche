@@ -9,6 +9,12 @@ window.MEDIATHEQUE_CARD_LOADED = true;
 const MEDIATHEQUE_CARD_VERSION = '1.4.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
+function _mcLog(level, card, msg, ...args) {
+  const prefix = `%c MEDIATHEQUE-CARD %c [${card}]`;
+  const styles = ['color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; font-weight: bold;'];
+  console[level](prefix + ' ' + msg, ...styles, ...args);
+}
+
 const MONTHS_FR = [
   '', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
   'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
@@ -28,13 +34,19 @@ class MediathequeCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    this._render();
+    try {
+      this._render();
+    } catch (e) {
+      _mcLog('error', 'main', 'Render error: %o', e);
+    }
   }
 
   setConfig(config) {
     if (!config.entity) {
+      _mcLog('error', 'main', 'Config invalide: entity manquant. Config reçue: %o', config);
       throw new Error('Vous devez définir une entité (entity)');
     }
+    _mcLog('info', 'main', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
     this._rendered = false;
   }
@@ -47,16 +59,12 @@ class MediathequeCard extends HTMLElement {
     const entityId = this._config.entity;
     const state = this._hass.states[entityId];
 
-    if (!state) {
-      this.innerHTML = `<ha-card><div style="padding:16px">Entité introuvable : ${entityId}</div></ha-card>`;
-      return;
-    }
-
-    const attrs = state.attributes;
     const titre = this._config.title || 'Médiathèque de Veauche';
 
-    // Loading state: keep previous render or show spinner
-    if (state.state === 'unavailable' || state.state === 'unknown') {
+    // No state or unavailable: keep last render if available
+    if (!state || state.state === 'unavailable' || state.state === 'unknown') {
+      const reason = !state ? 'entity not found' : `state=${state.state}`;
+      _mcLog('warn', 'main', '%s — %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
       if (this._lastHtml) return;
       this.innerHTML = `
         <ha-card>
@@ -314,13 +322,19 @@ class MediathequeDueCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    this._render();
+    try {
+      this._render();
+    } catch (e) {
+      _mcLog('error', 'due', 'Render error: %o', e);
+    }
   }
 
   setConfig(config) {
     if (!config.entity) {
+      _mcLog('error', 'due', 'Config invalide: entity manquant. Config reçue: %o', config);
       throw new Error('Vous devez définir une entité (entity)');
     }
+    _mcLog('info', 'due', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
   }
 
@@ -332,14 +346,11 @@ class MediathequeDueCard extends HTMLElement {
     const entityId = this._config.entity;
     const state = this._hass.states[entityId];
 
-    if (!state) {
-      this.innerHTML = `<ha-card><div style="padding:16px">Entité introuvable : ${entityId}</div></ha-card>`;
-      return;
-    }
-
     const title = this._config.title || 'A rendre cette semaine';
 
-    if (state.state === 'unavailable' || state.state === 'unknown') {
+    if (!state || state.state === 'unavailable' || state.state === 'unknown') {
+      const reason = !state ? 'entity not found' : `state=${state.state}`;
+      _mcLog('warn', 'due', '%s — %s %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
       if (this._lastHtml) return;
       this.innerHTML = `
         <ha-card>
