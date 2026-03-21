@@ -3,6 +3,9 @@
  * Affiche les emprunts de la médiathèque par membre de la famille.
  */
 
+const MEDIATHEQUE_CARD_VERSION = '1.3.0';
+console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
+
 const MONTHS_FR = [
   '', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
   'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
