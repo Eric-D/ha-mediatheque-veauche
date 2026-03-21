@@ -22,17 +22,22 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Update manifest.json version
+      - name: Update manifest.json and card version
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" \
             custom_components/mediatheque_veauche/manifest.json
+          sed -i "s/const MEDIATHEQUE_CARD_VERSION = '.*'/const MEDIATHEQUE_CARD_VERSION = '${VERSION}'/" \
+            custom_components/mediatheque_veauche/www/mediatheque-card.js \
+            www/mediatheque-card.js
 
       - name: Commit version bump
         run: |
           git config user.name "Eric-D"
           git config user.email "Eric-D@users.noreply.github.com"
-          git add custom_components/mediatheque_veauche/manifest.json
+          git add custom_components/mediatheque_veauche/manifest.json \
+            custom_components/mediatheque_veauche/www/mediatheque-card.js \
+            www/mediatheque-card.js
           if ! git diff --cached --quiet; then
             git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
             git push origin master
