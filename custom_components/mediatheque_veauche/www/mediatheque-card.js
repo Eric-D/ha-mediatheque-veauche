@@ -303,9 +303,253 @@ class MediathequeCard extends HTMLElement {
 
 customElements.define('mediatheque-card', MediathequeCard);
 
+
+class MediathequeDueCard extends HTMLElement {
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._config) return;
+    this._render();
+  }
+
+  setConfig(config) {
+    if (!config.entity) {
+      throw new Error('Vous devez définir une entité (entity)');
+    }
+    this._config = config;
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  _render() {
+    const entityId = this._config.entity;
+    const state = this._hass.states[entityId];
+
+    if (!state) {
+      this.innerHTML = `<ha-card><div style="padding:16px">Entité introuvable : ${entityId}</div></ha-card>`;
+      return;
+    }
+
+    const title = this._config.title || 'A rendre cette semaine';
+
+    if (state.state === 'unavailable' || state.state === 'unknown') {
+      if (this._lastHtml) return;
+      this.innerHTML = `
+        <ha-card>
+          <div class="mediatheque-header">
+            <span class="mediatheque-title">${title}</span>
+          </div>
+          <div style="padding:32px 16px;text-align:center">
+            <div class="mediatheque-loader"></div>
+            <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">Chargement...</div>
+          </div>
+          <style>
+            .mediatheque-loader {
+              width: 36px;
+              height: 36px;
+              border: 3px solid var(--divider-color, #e0e0e0);
+              border-top: 3px solid var(--primary-color, #03a9f4);
+              border-radius: 50%;
+              margin: 0 auto;
+              animation: mediatheque-spin 1s linear infinite;
+            }
+            @keyframes mediatheque-spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+        </ha-card>`;
+      return;
+    }
+
+    const attrs = state.attributes;
+    const livres = attrs.livres || [];
+    const count = parseInt(state.state) || 0;
+
+    let html = `
+      <ha-card>
+        <style>
+          .mediatheque-header {
+            padding: 16px 16px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .mediatheque-title {
+            font-size: 1.1em;
+            font-weight: 500;
+            color: var(--primary-text-color);
+          }
+          .mediatheque-total {
+            background: ${count > 0 ? '#f57f17' : 'var(--primary-color)'};
+            color: ${count > 0 ? '#fff' : 'var(--text-primary-color, #fff)'};
+            border-radius: 12px;
+            padding: 2px 10px;
+            font-size: 0.85em;
+            font-weight: 600;
+          }
+          .book-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.06));
+          }
+          .book-row:last-child {
+            border-bottom: none;
+          }
+          .book-cover {
+            width: 52px;
+            height: 76px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: var(--secondary-background-color, #f0f0f0);
+          }
+          .book-cover-wrapper {
+            position: relative;
+            flex-shrink: 0;
+            cursor: pointer;
+          }
+          .book-info {
+            flex: 1;
+            min-width: 0;
+          }
+          .book-title {
+            font-size: 0.9em;
+            font-weight: 500;
+            color: var(--primary-text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .book-date {
+            font-size: 0.8em;
+            color: var(--secondary-text-color);
+            margin-top: 2px;
+          }
+          .book-emprunteur {
+            font-size: 0.75em;
+            color: var(--secondary-text-color);
+            margin-top: 1px;
+          }
+          .book-badges {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+            flex-wrap: wrap;
+          }
+          .badge-days {
+            font-size: 0.75em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+          }
+          .book-cover-preview {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 999;
+            background: rgba(0,0,0,0.7);
+            align-items: center;
+            justify-content: center;
+          }
+          .book-cover-preview.active {
+            display: flex;
+          }
+          .book-cover-preview img {
+            max-width: 80vw;
+            max-height: 80vh;
+            border-radius: 8px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+            object-fit: contain;
+          }
+          .empty-state {
+            padding: 24px 16px;
+            text-align: center;
+            color: var(--secondary-text-color);
+          }
+        </style>
+
+        <div class="mediatheque-header">
+          <span class="mediatheque-title">${title}</span>
+          <span class="mediatheque-total">${count} livre${count > 1 ? 's' : ''}</span>
+        </div>
+    `;
+
+    if (livres.length === 0) {
+      html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
+    }
+
+    const sorted = [...livres].sort((a, b) => a.days_left - b.days_left);
+
+    for (const loan of sorted) {
+      const chip = getDaysChip(loan.days_left);
+      const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
+
+      html += `
+        <div class="book-row">
+          <div class="book-cover-wrapper" data-cover="${coverSrc}">
+            <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
+                 onerror="this.src='${PLACEHOLDER_SVG}'" />
+          </div>
+          <div class="book-info">
+            <div class="book-title" title="${loan.titre}">${loan.titre}</div>
+            <div class="book-date">Retour : ${loan.due_date_display}</div>
+            ${loan.emprunteur ? `<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>` : ''}
+            <div class="book-badges">
+              <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    html += `
+        <div class="book-cover-preview" id="cover-preview-due">
+          <img src="" alt="" />
+        </div>
+      </ha-card>`;
+    this.innerHTML = html;
+    this._lastHtml = true;
+
+    const preview = this.querySelector('#cover-preview-due');
+    const previewImg = preview.querySelector('img');
+
+    this.querySelectorAll('.book-cover-wrapper').forEach(wrapper => {
+      wrapper.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const src = wrapper.dataset.cover;
+        if (preview.classList.contains('active')) {
+          preview.classList.remove('active');
+        } else {
+          previewImg.src = src;
+          preview.classList.add('active');
+        }
+      });
+    });
+
+    preview.addEventListener('click', () => {
+      preview.classList.remove('active');
+    });
+  }
+}
+
+customElements.define('mediatheque-card', MediathequeCard);
+customElements.define('mediatheque-due-card', MediathequeDueCard);
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'mediatheque-card',
   name: 'Médiathèque de Veauche',
   description: 'Affiche les emprunts de la médiathèque de Veauche par membre',
+});
+window.customCards.push({
+  type: 'mediatheque-due-card',
+  name: 'Médiathèque - A rendre',
+  description: 'Affiche les livres à rendre cette semaine',
 });
