@@ -93,6 +93,7 @@ class MediathequeCard extends HTMLElement {
       return;
     }
 
+    const attrs = state.attributes;
     const membres = attrs.membres || {};
     const compte = attrs.compte || '';
     const total = attrs.total || 0;
