@@ -132,13 +132,10 @@ class MediathequeVeaucheClient:
             if img:
                 src = img["src"]
                 result["cover_url"] = f"{BASE_URL}{src}" if src.startswith("/") else src
-            # ISBN / EAN: search in page text
-            page_text = soup.get_text()
-            isbn_match = re.search(r"(?:ISBN|EAN)[^\d]*([\d\-\s X]{10,20})", page_text, re.IGNORECASE)
-            if not isbn_match:
-                isbn_match = re.search(r"\b(97[89][\d\-\s]{10,17})\b", page_text)
-            if isbn_match:
-                result["isbn"] = re.sub(r"[\s\-]", "", isbn_match.group(1)).strip()
+            # ISBN from hidden input
+            isbn_input = soup.find("input", id="BW_id_isbn")
+            if isbn_input and isbn_input.get("value"):
+                result["isbn"] = isbn_input["value"].strip()
         except Exception as exc:
             _LOGGER.warning("Impossible de récupérer les détails du livre %s: %s", book_id, exc)
         return result
