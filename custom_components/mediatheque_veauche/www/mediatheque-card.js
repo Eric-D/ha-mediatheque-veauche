@@ -60,11 +60,13 @@ function getModalStyles() {
       width: 100%;
       max-height: 300px;
       object-fit: contain;
-      border-radius: 12px 12px 0 0;
       background: var(--secondary-background-color, #f0f0f0);
     }
     .mc-modal-body {
       padding: 16px;
+    }
+    .mc-modal-body-top {
+      padding-bottom: 0;
     }
     .mc-modal-title {
       font-size: 1.1em;
@@ -173,9 +175,11 @@ function getModalHtml(id) {
   return `
     <div class="mc-modal-overlay" id="${id}">
       <div class="mc-modal">
+        <div class="mc-modal-body mc-modal-body-top">
+          <div class="mc-modal-title"></div>
+        </div>
         <img class="mc-modal-cover" src="" alt="" />
         <div class="mc-modal-body">
-          <div class="mc-modal-title"></div>
           <div class="mc-modal-isbn"></div>
           <div class="mc-modal-actions">
             <button class="mc-modal-btn mc-modal-btn-close">Fermer</button>
