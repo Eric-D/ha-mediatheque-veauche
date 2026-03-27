@@ -210,12 +210,15 @@ class MediathequeVeaucheClient:
         # Extend
         extend_cell = cells[idx] if idx < len(cells) else None
         can_extend = False
+        extended = False
         extend_url = None
         if extend_cell:
             extend_link = extend_cell.find("a")
             if extend_link:
                 classes = extend_link.get("class", [])
-                if "disabled" not in classes:
+                if "disabled" in classes:
+                    extended = True
+                else:
                     can_extend = True
                     href = extend_link.get("href", "")
                     if href.startswith("/"):
@@ -237,6 +240,7 @@ class MediathequeVeaucheClient:
             "due_date_display": self._format_date_display(due_date),
             "days_left": days_left,
             "can_extend": can_extend,
+            "extended": extended,
             "extend_url": extend_url,
             "cover_url": cover_url,
             "emprunteur": emprunteur,

@@ -300,6 +300,8 @@ class MediathequeCard extends HTMLElement {
               <div class="book-date">Retour : ${loan.due_date_display}</div>
               <div class="book-badges">
                 <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
+                ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">↻ Prolongé</span>` : ''}
+                ${loan.can_extend ? `<span class="badge-days" style="color:#1565c0;background:#bbdefb">↻ Prolongeable</span>` : ''}
               </div>
             </div>
           </div>
@@ -584,6 +586,8 @@ class MediathequeDueCard extends HTMLElement {
             ${loan.emprunteur ? `<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>` : ''}
             <div class="book-badges">
               <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
+              ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">↻ Prolongé</span>` : ''}
+              ${loan.can_extend ? `<span class="badge-days" style="color:#1565c0;background:#bbdefb">↻ Prolongeable</span>` : ''}
             </div>
           </div>
         </div>
