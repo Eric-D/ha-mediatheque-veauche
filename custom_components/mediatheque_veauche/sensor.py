@@ -8,11 +8,13 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_PASSWORD,
@@ -24,6 +26,8 @@ from .const import (
 from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
 
 
 async def async_setup_entry(
@@ -41,11 +45,33 @@ async def async_setup_entry(
 
     client = MediathequeVeaucheClient(username, password)
 
+    store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
+    cached = await store.async_load() or {}
+    state = {"last_success": cached.get("last_success")}
+
     async def async_update_data() -> dict:
         """Fetch data from the library."""
         try:
-            return await hass.async_add_executor_job(client.fetch_all)
+            data = await hass.async_add_executor_job(client.fetch_all)
+            state["last_success"] = dt_util.utcnow().isoformat()
+            cached["data"] = data
+            cached["last_success"] = state["last_success"]
+            await store.async_save(cached)
+            _LOGGER.info(
+                "Données récupérées: %d emprunts, %d à rendre cette semaine, %d en retard",
+                data.get("total", 0),
+                data.get("due_this_week", 0),
+                data.get("overdue", 0),
+            )
+            return data
         except Exception as err:
+            _LOGGER.warning("Échec de la mise à jour des données: %s", err)
+            if cached.get("data"):
+                _LOGGER.info(
+                    "Utilisation des données en cache (dernier fetch: %s)",
+                    state["last_success"],
+                )
+                return cached["data"]
             raise UpdateFailed(f"Error fetching library data: {err}") from err
 
     coordinator = DataUpdateCoordinator(
@@ -56,11 +82,16 @@ async def async_setup_entry(
         update_interval=timedelta(minutes=scan_interval),
     )
 
+    # Pre-fill coordinator with cached data so sensors have values immediately
+    if cached.get("data"):
+        coordinator.async_set_updated_data(cached["data"])
+
     async_add_entities([
         MediathequeEmpruntsTotal(coordinator, entry),
         MediathequeEmpruntsSemaine(coordinator, entry),
         MediathequeEmpruntsRetard(coordinator, entry),
         MediathequeFinCotisation(coordinator, entry),
+        MediathequeDerniereMaj(coordinator, entry, state),
     ])
 
     # Fire and forget — don't block platform setup
@@ -192,3 +223,26 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
             "days_left": sub.get("days_left"),
             "subscriptions": sub.get("subscriptions", []),
         }
+
+
+class MediathequeDerniereMaj(CoordinatorEntity, SensorEntity):
+    """Last successful data fetch timestamp."""
+
+    _attr_icon = "mdi:clock-check-outline"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry, state: dict) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_last_update"
+        self._attr_name = "Dernière MAJ Médiathèque"
+        self._state = state
+
+    @property
+    def native_value(self) -> datetime | None:
+        ts = self._state.get("last_success")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts)
+            except (ValueError, TypeError):
+                pass
+        return None

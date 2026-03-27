@@ -42,6 +42,7 @@ class MediathequeVeaucheClient:
         })
 
         # GET the login page to find the CSRF token
+        _LOGGER.info("Connexion à la médiathèque pour %s…", self._username)
         resp = self._session.get(LOGIN_URL, timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -79,6 +80,7 @@ class MediathequeVeaucheClient:
             raise AuthenticationError("Login failed: redirected back to login page")
 
         self._borrowings_html = resp.text
+        _LOGGER.info("Connexion réussie, page des emprunts récupérée")
 
         # Fetch lastname from profile edit page
         self._fetch_lastname()
@@ -93,8 +95,8 @@ class MediathequeVeaucheClient:
             if input_el:
                 self._lastname = input_el.get("value", "").strip()
                 _LOGGER.debug("Fetched lastname: %s", self._lastname)
-        except Exception:
-            _LOGGER.debug("Could not fetch lastname from profile page")
+        except Exception as exc:
+            _LOGGER.warning("Impossible de récupérer le nom depuis le profil: %s", exc)
 
     def _extract_firstname(self, full_name: str) -> str:
         """Extract first name by removing the known lastname.
@@ -131,8 +133,8 @@ class MediathequeVeaucheClient:
                 if src.startswith("/"):
                     return f"{BASE_URL}{src}"
                 return src
-        except Exception:
-            _LOGGER.debug("Could not fetch cover for book %s", book_id)
+        except Exception as exc:
+            _LOGGER.warning("Impossible de récupérer la couverture du livre %s: %s", book_id, exc)
         return None
 
     @staticmethod
@@ -334,8 +336,8 @@ class MediathequeVeaucheClient:
                 result["expiry_date_display"] = self._format_date_display(latest_date)
                 result["days_left"] = self._days_until(latest_date)
 
-        except Exception:
-            _LOGGER.debug("Could not fetch subscription expiry")
+        except Exception as exc:
+            _LOGGER.warning("Impossible de récupérer la date de cotisation: %s", exc)
 
         return result
 
