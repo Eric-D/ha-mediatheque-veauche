@@ -318,7 +318,7 @@ function escapeAttr(str) {
   return (str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function bindModal(root, modalId) {
+function bindModal(root, modalId, hass) {
   const overlay = root.querySelector(`#${modalId}`);
   const coverImg = overlay.querySelector('.mc-modal-cover');
   const titleEl = overlay.querySelector('.mc-modal-title');
@@ -359,8 +359,8 @@ function bindModal(root, modalId) {
   cancelBtn.addEventListener('click', closeConfirm);
 
   confirmBtn.addEventListener('click', () => {
-    if (currentExtendUrl) {
-      window.open(currentExtendUrl, '_blank');
+    if (currentExtendUrl && hass) {
+      hass.callService('mediatheque_veauche', 'extend_loan', { extend_url: currentExtendUrl });
       closeConfirm();
       closeDetail();
     }
@@ -483,6 +483,7 @@ class MediathequeCard extends HTMLElement {
     const membres = attrs.membres || {};
     const compte = attrs.compte || '';
     const total = attrs.total || 0;
+    const cardId = attrs.card_id || this._config.card_id || '';
     const title = titre;
 
     // Sort members: account holder first, then alphabetically
@@ -604,13 +605,12 @@ class MediathequeCard extends HTMLElement {
           <span class="mediatheque-title">${title}</span>
           <span style="display:flex;align-items:center;gap:6px">
             <span class="mediatheque-total">${total} emprunt${total > 1 ? 's' : ''}</span>
-            ${this._config.card_id ? `<button class="mc-barcode-btn" id="mc-barcode-trigger" title="Ma carte">|||</button>` : ''}
+            ${cardId ? `<button class="mc-barcode-btn" id="mc-barcode-trigger" title="Ma carte">|||</button>` : ''}
           </span>
         </div>
     `;
 
-    if (this._config.card_id) {
-      const cardId = this._config.card_id;
+    if (cardId) {
       html += `
         <div class="mc-barcode-overlay" id="mc-barcode-modal">
           <div class="mc-barcode-dialog">
@@ -678,7 +678,7 @@ class MediathequeCard extends HTMLElement {
     this.innerHTML = html;
     this._lastHtml = true;
 
-    bindModal(this, 'mc-modal-main');
+    bindModal(this, 'mc-modal-main', this._hass);
 
     // Barcode modal
     const bcTrigger = this.querySelector('#mc-barcode-trigger');
@@ -938,7 +938,7 @@ class MediathequeDueCard extends HTMLElement {
     this.innerHTML = html;
     this._lastHtml = true;
 
-    bindModal(this, 'mc-modal-due');
+    bindModal(this, 'mc-modal-due', this._hass);
   }
 }
 

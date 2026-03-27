@@ -17,13 +17,11 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,13 +35,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up sensor from a config entry."""
     username = entry.data[CONF_USERNAME]
-    password = entry.data[CONF_PASSWORD]
     scan_interval = entry.options.get(
         CONF_SCAN_INTERVAL,
         entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
 
-    client = MediathequeVeaucheClient(username, password)
+    client = hass.data[DOMAIN][entry.entry_id]["client"]
 
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
     cached = await store.async_load() or {}
@@ -108,7 +105,8 @@ class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_total"
+        self._username = entry.data[CONF_USERNAME]
+        self._attr_unique_id = f"{DOMAIN}_{self._username}_total"
         self._attr_name = "Emprunts Médiathèque"
 
     @property
@@ -122,6 +120,7 @@ class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
         if not self.coordinator.data:
             return {}
         return {
+            "card_id": self._username,
             "compte": self.coordinator.data.get("compte", ""),
             "membres": self.coordinator.data.get("membres", {}),
             "total": self.coordinator.data.get("total", 0),

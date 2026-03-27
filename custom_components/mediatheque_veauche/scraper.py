@@ -347,6 +347,15 @@ class MediathequeVeaucheClient:
 
         return result
 
+    def extend_loan(self, extend_url: str) -> None:
+        """Extend a loan by calling the extend URL."""
+        if not self._session:
+            self.login()
+        _LOGGER.info("Prolongation du prêt: %s", extend_url)
+        resp = self._session.get(extend_url, timeout=15)
+        resp.raise_for_status()
+        _LOGGER.info("Prolongation effectuée (status %d)", resp.status_code)
+
     def fetch_all(self) -> dict:
         """Login and fetch all borrowings and subscription info."""
         self.login()

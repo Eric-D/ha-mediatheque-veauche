@@ -4,19 +4,28 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import voluptuous as vol
+
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+import homeassistant.helpers.config_validation as cv
 
-from .const import DOMAIN
+from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
+
+SERVICE_EXTEND_LOAN = "extend_loan"
+SERVICE_EXTEND_SCHEMA = vol.Schema({
+    vol.Required("extend_url"): cv.url,
+})
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -40,9 +49,38 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Médiathèque de Veauche from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+
+    username = entry.data[CONF_USERNAME]
+    password = entry.data[CONF_PASSWORD]
+    client = MediathequeVeaucheClient(username, password)
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        "client": client,
+        "username": username,
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register extend_loan service (once)
+    if not hass.services.has_service(DOMAIN, SERVICE_EXTEND_LOAN):
+        async def handle_extend_loan(call: ServiceCall) -> None:
+            """Handle the extend_loan service call."""
+            extend_url = call.data["extend_url"]
+            # Find the first available client
+            for data in hass.data[DOMAIN].values():
+                if isinstance(data, dict) and "client" in data:
+                    client = data["client"]
+                    try:
+                        await hass.async_add_executor_job(client.extend_loan, extend_url)
+                    except Exception as err:
+                        _LOGGER.error("Erreur lors de la prolongation: %s", err)
+                        raise
+                    return
+            _LOGGER.error("Aucun client disponible pour la prolongation")
+
+        hass.services.async_register(
+            DOMAIN, SERVICE_EXTEND_LOAN, handle_extend_loan, schema=SERVICE_EXTEND_SCHEMA
+        )
 
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 

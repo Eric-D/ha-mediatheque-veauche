@@ -1,0 +1,11 @@
+extend_loan:
+  name: Prolonger un emprunt
+  description: Prolonge un emprunt à la médiathèque en appelant l'URL de prolongation.
+  fields:
+    extend_url:
+      name: URL de prolongation
+      description: L'URL de prolongation fournie par le capteur.
+      required: true
+      example: "https://mediatheque.veauche.fr/index.php/mon-profil?..."
+      selector:
+        text:
