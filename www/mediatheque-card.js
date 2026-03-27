@@ -34,6 +34,7 @@ class MediathequeCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
       this._render();
     } catch (e) {
@@ -43,12 +44,27 @@ class MediathequeCard extends HTMLElement {
 
   setConfig(config) {
     if (!config.entity) {
-      _mcLog('error', 'main', 'Config invalide: entity manquant. Config reçue: %o', config);
-      throw new Error('Vous devez définir une entité (entity)');
+      _mcLog('warn', 'main', 'Config sans entity, config reçue: %o — attente…', config);
+      this._config = config;
+      return;
     }
     _mcLog('info', 'main', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
     this._rendered = false;
+  }
+
+  _scheduleRetry() {
+    if (this._retryTimer) return;
+    this._retryCount = (this._retryCount || 0) + 1;
+    if (this._retryCount > 10) return;
+    const delay = Math.min(2000 * this._retryCount, 15000);
+    _mcLog('info', 'main', 'Retry %d dans %dms…', this._retryCount, delay);
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      if (this._hass && this._config) {
+        try { this._render(); } catch (e) { _mcLog('error', 'main', 'Retry render error: %o', e); }
+      }
+    }, delay);
   }
 
   getCardSize() {
@@ -57,14 +73,19 @@ class MediathequeCard extends HTMLElement {
 
   _render() {
     const entityId = this._config.entity;
+    if (!entityId) {
+      _mcLog('warn', 'main', 'Pas d\'entity configurée, attente…');
+      return;
+    }
     const state = this._hass.states[entityId];
 
     const titre = this._config.title || 'Médiathèque de Veauche';
 
-    // No state or unavailable: keep last render if available
+    // No state or unavailable: keep last render if available, schedule retry
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
       _mcLog('warn', 'main', '%s — %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
+      this._scheduleRetry();
       if (this._lastHtml) return;
       this.innerHTML = `
         <ha-card>
@@ -92,6 +113,9 @@ class MediathequeCard extends HTMLElement {
         </ha-card>`;
       return;
     }
+
+    // State OK — reset retry counter
+    this._retryCount = 0;
 
     const attrs = state.attributes;
     const membres = attrs.membres || {};
@@ -323,6 +347,7 @@ class MediathequeDueCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
       this._render();
     } catch (e) {
@@ -332,11 +357,26 @@ class MediathequeDueCard extends HTMLElement {
 
   setConfig(config) {
     if (!config.entity) {
-      _mcLog('error', 'due', 'Config invalide: entity manquant. Config reçue: %o', config);
-      throw new Error('Vous devez définir une entité (entity)');
+      _mcLog('warn', 'due', 'Config sans entity, config reçue: %o — attente…', config);
+      this._config = config;
+      return;
     }
     _mcLog('info', 'due', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
+  }
+
+  _scheduleRetry() {
+    if (this._retryTimer) return;
+    this._retryCount = (this._retryCount || 0) + 1;
+    if (this._retryCount > 10) return;
+    const delay = Math.min(2000 * this._retryCount, 15000);
+    _mcLog('info', 'due', 'Retry %d dans %dms…', this._retryCount, delay);
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      if (this._hass && this._config) {
+        try { this._render(); } catch (e) { _mcLog('error', 'due', 'Retry render error: %o', e); }
+      }
+    }, delay);
   }
 
   getCardSize() {
@@ -345,6 +385,10 @@ class MediathequeDueCard extends HTMLElement {
 
   _render() {
     const entityId = this._config.entity;
+    if (!entityId) {
+      _mcLog('warn', 'due', 'Pas d\'entity configurée, attente…');
+      return;
+    }
     const state = this._hass.states[entityId];
 
     const title = this._config.title || 'A rendre cette semaine';
@@ -352,6 +396,7 @@ class MediathequeDueCard extends HTMLElement {
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
       _mcLog('warn', 'due', '%s — %s %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
+      this._scheduleRetry();
       if (this._lastHtml) return;
       this.innerHTML = `
         <ha-card>
@@ -379,6 +424,9 @@ class MediathequeDueCard extends HTMLElement {
         </ha-card>`;
       return;
     }
+
+    // State OK — reset retry counter
+    this._retryCount = 0;
 
     const attrs = state.attributes;
     const livres = attrs.livres || [];
