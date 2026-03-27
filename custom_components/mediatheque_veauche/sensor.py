@@ -79,6 +79,9 @@ async def async_setup_entry(
         update_interval=timedelta(minutes=scan_interval),
     )
 
+    # Store coordinator reference for service access
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
+
     # Pre-fill coordinator with cached data so sensors have values immediately
     if cached.get("data"):
         coordinator.async_set_updated_data(cached["data"])

@@ -28,6 +28,17 @@ SERVICE_EXTEND_SCHEMA = vol.Schema({
 })
 
 
+def _mark_loan_extended(data: dict, extend_url: str) -> None:
+    """Mark a loan as extended in the coordinator data."""
+    for membres in (data.get("membres") or {}).values():
+        for loan in membres:
+            if loan.get("extend_url") == extend_url:
+                loan["can_extend"] = False
+                loan["extended"] = True
+                loan["extend_url"] = None
+                return
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the integration via async_setup (runs once at HA start)."""
     if DOMAIN + "_static_registered" in hass.data:
@@ -66,16 +77,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def handle_extend_loan(call: ServiceCall) -> None:
             """Handle the extend_loan service call."""
             extend_url = call.data["extend_url"]
-            # Find the first available client
-            for data in hass.data[DOMAIN].values():
-                if isinstance(data, dict) and "client" in data:
-                    client = data["client"]
-                    try:
-                        await hass.async_add_executor_job(client.extend_loan, extend_url)
-                    except Exception as err:
-                        _LOGGER.error("Erreur lors de la prolongation: %s", err)
-                        raise
-                    return
+            for entry_data in hass.data[DOMAIN].values():
+                if not isinstance(entry_data, dict) or "client" not in entry_data:
+                    continue
+                try:
+                    await hass.async_add_executor_job(
+                        entry_data["client"].extend_loan, extend_url
+                    )
+                except Exception as err:
+                    _LOGGER.error("Erreur lors de la prolongation: %s", err)
+                    raise
+                # Update coordinator data to reflect the extension
+                coordinator = entry_data.get("coordinator")
+                if coordinator and coordinator.data:
+                    _mark_loan_extended(coordinator.data, extend_url)
+                    coordinator.async_set_updated_data(coordinator.data)
+                return
             _LOGGER.error("Aucun client disponible pour la prolongation")
 
         hass.services.async_register(

@@ -790,17 +790,15 @@ class MediathequeDueCard extends HTMLElement {
     const livres = attrs.livres || [];
     const count = parseInt(state.state) || 0;
 
-    // Get total from total_entity config or auto-detect
+    // Get total and card_id from total_entity config or auto-detect
     let totalEmprunts = null;
+    let dueCardId = '';
     const totalEntityId = this._config.total_entity;
-    if (totalEntityId && this._hass.states[totalEntityId]) {
-      totalEmprunts = parseInt(this._hass.states[totalEntityId].state) || 0;
-    } else {
-      // Auto-detect: replace _due_week with _total
-      const autoId = entityId.replace('_due_week', '_total');
-      if (this._hass.states[autoId]) {
-        totalEmprunts = parseInt(this._hass.states[autoId].state) || 0;
-      }
+    const autoId = entityId.replace('_due_week', '_total');
+    const totalState = (totalEntityId && this._hass.states[totalEntityId]) || this._hass.states[autoId];
+    if (totalState) {
+      totalEmprunts = parseInt(totalState.state) || 0;
+      dueCardId = (totalState.attributes || {}).card_id || '';
     }
 
     const badgeText = totalEmprunts !== null ? `${count} / ${totalEmprunts}` : `${count}`;
@@ -895,9 +893,25 @@ class MediathequeDueCard extends HTMLElement {
 
         <div class="mediatheque-header">
           <span class="mediatheque-title">${title}</span>
-          <span class="mediatheque-total">${badgeText}</span>
+          <span style="display:flex;align-items:center;gap:6px">
+            <span class="mediatheque-total">${badgeText}</span>
+            ${dueCardId ? `<button class="mc-barcode-btn" id="mc-barcode-trigger-due" title="Ma carte">|||</button>` : ''}
+          </span>
         </div>
     `;
+
+    if (dueCardId) {
+      html += `
+        <div class="mc-barcode-overlay" id="mc-barcode-modal-due">
+          <div class="mc-barcode-dialog">
+            <h3>Ma carte</h3>
+            <div class="mc-barcode-id">${escapeAttr(dueCardId)}</div>
+            ${generateCode128Svg(dueCardId)}
+            <br><button class="mc-barcode-close">Fermer</button>
+          </div>
+        </div>
+      `;
+    }
 
     if (livres.length === 0) {
       html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
@@ -939,6 +953,21 @@ class MediathequeDueCard extends HTMLElement {
     this._lastHtml = true;
 
     bindModal(this, 'mc-modal-due', this._hass);
+
+    // Barcode modal
+    const bcTriggerDue = this.querySelector('#mc-barcode-trigger-due');
+    const bcOverlayDue = this.querySelector('#mc-barcode-modal-due');
+    if (bcTriggerDue && bcOverlayDue) {
+      const bcCloseDue = bcOverlayDue.querySelector('.mc-barcode-close');
+      bcTriggerDue.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bcOverlayDue.classList.add('active');
+      });
+      bcOverlayDue.addEventListener('click', (e) => {
+        if (e.target === bcOverlayDue) bcOverlayDue.classList.remove('active');
+      });
+      bcCloseDue.addEventListener('click', () => bcOverlayDue.classList.remove('active'));
+    }
   }
 }
 
