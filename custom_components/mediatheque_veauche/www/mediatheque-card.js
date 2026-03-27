@@ -30,6 +30,58 @@ function getDaysChip(daysLeft) {
   return { text: `✓ ${daysLeft}j restants`, color: '#2e7d32', bg: '#c8e6c9' };
 }
 
+// Code 128B barcode encoder → SVG
+const CODE128B_PATTERNS = [
+  '11011001100','11001101100','11001100110','10010011000','10010001100',
+  '10001001100','10011001000','10011000100','10001100100','11001001000',
+  '11001000100','11000100100','10110011100','10011011100','10011001110',
+  '10111001100','10011101100','10011100110','11001110010','11001011100',
+  '11001001110','11011100100','11001110100','11100101100','11100100110',
+  '10110001100','10001101100','10001100110','11010001100','11000101100',
+  '11000100110','10110001000','10001101000','10001100010','11010001000',
+  '11000101000','11000100010','10110111000','10110001110','10001101110',
+  '10111011000','10111000110','10001110110','11101011000','11101000110',
+  '11100010110','11011101000','11011100010','11000111010','11101101000',
+  '11101100010','11100011010','11101111010','11001000010','11110001010',
+  '10100110000','10100001100','10010110000','10010000110','10000101100',
+  '10000100110','10110010000','10110000100','10011010000','10011000010',
+  '10000110100','10000110010','11000010010','11001010000','11110111010',
+  '11000010100','10001111010','10100111100','10010111100','10010011110',
+  '10111100100','10011110100','10011110010','11110100100','11110010100',
+  '11110010010','11011011110','11011110110','11110110110','10101111000',
+  '10100011110','10001011110','10111101000','10111100010','11110101000',
+  '11110100010','10111011110','10111101110','11101011110','11110101110',
+  '11010000100','11010010000','11010011100','1100011101011',
+];
+
+function generateCode128Svg(text, height = 80) {
+  const codes = [];
+  const startCode = 104; // Start B
+  codes.push(startCode);
+  let checksum = startCode;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i) - 32;
+    codes.push(code);
+    checksum += code * (i + 1);
+  }
+  codes.push(checksum % 103);
+  codes.push(106); // Stop
+
+  let binary = '';
+  for (const c of codes) binary += CODE128B_PATTERNS[c];
+
+  const barWidth = 2;
+  const width = binary.length * barWidth;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
+  for (let i = 0; i < binary.length; i++) {
+    if (binary[i] === '1') {
+      svg += `<rect x="${i * barWidth}" y="0" width="${barWidth}" height="${height}" fill="#000"/>`;
+    }
+  }
+  svg += `</svg>`;
+  return svg;
+}
+
 function getModalStyles() {
   return `
     .mc-modal-overlay {
@@ -168,6 +220,66 @@ function getModalStyles() {
       font-weight: 600;
       cursor: pointer;
     }
+    .mc-barcode-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 1.2em;
+      color: var(--primary-text-color);
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+    .mc-barcode-btn:hover { opacity: 1; }
+    .mc-barcode-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 999;
+      background: rgba(0,0,0,0.7);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .mc-barcode-overlay.active {
+      display: flex;
+    }
+    .mc-barcode-dialog {
+      background: #fff;
+      border-radius: 12px;
+      max-width: 360px;
+      width: 100%;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .mc-barcode-dialog h3 {
+      margin: 0 0 4px;
+      font-size: 1em;
+      font-weight: 600;
+      color: #333;
+    }
+    .mc-barcode-dialog .mc-barcode-id {
+      font-size: 0.85em;
+      color: #666;
+      margin-bottom: 16px;
+    }
+    .mc-barcode-dialog svg {
+      width: 100%;
+      height: auto;
+    }
+    .mc-barcode-dialog .mc-barcode-close {
+      margin-top: 16px;
+      padding: 8px 24px;
+      border: none;
+      border-radius: 8px;
+      background: #e0e0e0;
+      color: #333;
+      font-weight: 600;
+      cursor: pointer;
+    }
   `;
 }
 
@@ -276,8 +388,7 @@ function bindModal(root, modalId) {
 }
 
 function isModalOpen(root) {
-  const el = root.querySelector('.mc-modal-overlay.active') || root.querySelector('.mc-confirm-overlay.active');
-  return !!el;
+  return !!(root.querySelector('.mc-modal-overlay.active') || root.querySelector('.mc-confirm-overlay.active') || root.querySelector('.mc-barcode-overlay.active'));
 }
 
 class MediathequeCard extends HTMLElement {
@@ -491,9 +602,26 @@ class MediathequeCard extends HTMLElement {
 
         <div class="mediatheque-header">
           <span class="mediatheque-title">${title}</span>
-          <span class="mediatheque-total">${total} emprunt${total > 1 ? 's' : ''}</span>
+          <span style="display:flex;align-items:center;gap:6px">
+            <span class="mediatheque-total">${total} emprunt${total > 1 ? 's' : ''}</span>
+            ${this._config.card_id ? `<button class="mc-barcode-btn" id="mc-barcode-trigger" title="Ma carte">|||</button>` : ''}
+          </span>
         </div>
     `;
+
+    if (this._config.card_id) {
+      const cardId = this._config.card_id;
+      html += `
+        <div class="mc-barcode-overlay" id="mc-barcode-modal">
+          <div class="mc-barcode-dialog">
+            <h3>Ma carte</h3>
+            <div class="mc-barcode-id">${escapeAttr(cardId)}</div>
+            ${generateCode128Svg(cardId)}
+            <br><button class="mc-barcode-close">Fermer</button>
+          </div>
+        </div>
+      `;
+    }
 
     if (sortedMembers.length === 0) {
       html += `<div class="empty-state">Aucun emprunt en cours</div>`;
@@ -551,6 +679,21 @@ class MediathequeCard extends HTMLElement {
     this._lastHtml = true;
 
     bindModal(this, 'mc-modal-main');
+
+    // Barcode modal
+    const bcTrigger = this.querySelector('#mc-barcode-trigger');
+    const bcOverlay = this.querySelector('#mc-barcode-modal');
+    if (bcTrigger && bcOverlay) {
+      const bcClose = bcOverlay.querySelector('.mc-barcode-close');
+      bcTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bcOverlay.classList.add('active');
+      });
+      bcOverlay.addEventListener('click', (e) => {
+        if (e.target === bcOverlay) bcOverlay.classList.remove('active');
+      });
+      bcClose.addEventListener('click', () => bcOverlay.classList.remove('active'));
+    }
   }
 }
 
