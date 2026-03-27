@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.6.3';
+const MEDIATHEQUE_CARD_VERSION = '1.7.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
