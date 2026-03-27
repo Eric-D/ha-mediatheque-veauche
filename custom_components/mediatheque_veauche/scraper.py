@@ -119,10 +119,11 @@ class MediathequeVeaucheClient:
         parts = name.split()
         return parts[-1].strip() if parts else name
 
-    def _get_book_cover(self, book_id: str) -> str | None:
-        """Fetch the cover image URL for a book."""
+    def _get_book_details(self, book_id: str) -> dict:
+        """Fetch the cover image URL and ISBN for a book."""
+        result = {"cover_url": None, "isbn": None}
         if not self._session:
-            return None
+            return result
         try:
             resp = self._session.get(f"{BOOK_URL}{book_id}", timeout=15)
             resp.raise_for_status()
@@ -130,12 +131,14 @@ class MediathequeVeaucheClient:
             img = soup.find("img", src=re.compile(r"/images/covers/"))
             if img:
                 src = img["src"]
-                if src.startswith("/"):
-                    return f"{BASE_URL}{src}"
-                return src
+                result["cover_url"] = f"{BASE_URL}{src}" if src.startswith("/") else src
+            # ISBN: look for text matching ISBN pattern in the page
+            isbn_match = re.search(r"ISBN\s*:?\s*([\d\-X]{10,17})", soup.get_text())
+            if isbn_match:
+                result["isbn"] = isbn_match.group(1).strip()
         except Exception as exc:
-            _LOGGER.warning("Impossible de récupérer la couverture du livre %s: %s", book_id, exc)
-        return None
+            _LOGGER.warning("Impossible de récupérer les détails du livre %s: %s", book_id, exc)
+        return result
 
     @staticmethod
     def _parse_date(date_str: str) -> str:
@@ -228,10 +231,8 @@ class MediathequeVeaucheClient:
                     else:
                         extend_url = f"{BASE_URL}/{href}"
 
-        # Cover
-        cover_url = None
-        if book_id:
-            cover_url = self._get_book_cover(book_id)
+        # Cover + ISBN
+        details = self._get_book_details(book_id) if book_id else {}
 
         return {
             "titre": titre,
@@ -242,7 +243,8 @@ class MediathequeVeaucheClient:
             "can_extend": can_extend,
             "extended": extended,
             "extend_url": extend_url,
-            "cover_url": cover_url,
+            "cover_url": details.get("cover_url"),
+            "isbn": details.get("isbn"),
             "emprunteur": emprunteur,
         }
 

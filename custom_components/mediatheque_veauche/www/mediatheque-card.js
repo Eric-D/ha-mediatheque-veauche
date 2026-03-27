@@ -30,6 +30,212 @@ function getDaysChip(daysLeft) {
   return { text: `✓ ${daysLeft}j restants`, color: '#2e7d32', bg: '#c8e6c9' };
 }
 
+function getModalStyles() {
+  return `
+    .mc-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 999;
+      background: rgba(0,0,0,0.7);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .mc-modal-overlay.active {
+      display: flex;
+    }
+    .mc-modal {
+      background: var(--card-background-color, #fff);
+      border-radius: 12px;
+      max-width: 360px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .mc-modal-cover {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      border-radius: 12px 12px 0 0;
+      background: var(--secondary-background-color, #f0f0f0);
+    }
+    .mc-modal-body {
+      padding: 16px;
+    }
+    .mc-modal-title {
+      font-size: 1.1em;
+      font-weight: 600;
+      color: var(--primary-text-color);
+      margin-bottom: 8px;
+    }
+    .mc-modal-isbn {
+      font-size: 0.85em;
+      color: var(--secondary-text-color);
+      margin-bottom: 12px;
+    }
+    .mc-modal-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .mc-modal-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .mc-modal-btn:active { opacity: 0.7; }
+    .mc-modal-btn-close {
+      background: var(--secondary-background-color, #e0e0e0);
+      color: var(--primary-text-color);
+    }
+    .mc-modal-btn-extend {
+      background: #1565c0;
+      color: #fff;
+    }
+    .mc-modal-confirm {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #fff3e0;
+      text-align: center;
+    }
+    .mc-modal-confirm.active {
+      display: block;
+    }
+    .mc-modal-confirm p {
+      margin: 0 0 10px;
+      font-size: 0.9em;
+      color: #e65100;
+      font-weight: 500;
+    }
+    .mc-modal-confirm-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+    .mc-modal-btn-cancel {
+      background: var(--secondary-background-color, #e0e0e0);
+      color: var(--primary-text-color);
+      padding: 8px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85em;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .mc-modal-btn-confirm {
+      background: #c62828;
+      color: #fff;
+      padding: 8px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85em;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  `;
+}
+
+function getModalHtml(id) {
+  return `
+    <div class="mc-modal-overlay" id="${id}">
+      <div class="mc-modal">
+        <img class="mc-modal-cover" src="" alt="" />
+        <div class="mc-modal-body">
+          <div class="mc-modal-title"></div>
+          <div class="mc-modal-isbn"></div>
+          <div class="mc-modal-actions">
+            <button class="mc-modal-btn mc-modal-btn-close">Fermer</button>
+            <button class="mc-modal-btn mc-modal-btn-extend" style="display:none">Prolonger</button>
+          </div>
+          <div class="mc-modal-confirm">
+            <p>Confirmer la prolongation ?</p>
+            <div class="mc-modal-confirm-actions">
+              <button class="mc-modal-btn-cancel">Annuler</button>
+              <button class="mc-modal-btn-confirm">Confirmer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function bindModal(root, modalId) {
+  const overlay = root.querySelector(`#${modalId}`);
+  const modal = overlay.querySelector('.mc-modal');
+  const coverImg = overlay.querySelector('.mc-modal-cover');
+  const titleEl = overlay.querySelector('.mc-modal-title');
+  const isbnEl = overlay.querySelector('.mc-modal-isbn');
+  const extendBtn = overlay.querySelector('.mc-modal-btn-extend');
+  const closeBtn = overlay.querySelector('.mc-modal-btn-close');
+  const confirmBox = overlay.querySelector('.mc-modal-confirm');
+  const cancelBtn = overlay.querySelector('.mc-modal-btn-cancel');
+  const confirmBtn = overlay.querySelector('.mc-modal-btn-confirm');
+
+  let currentExtendUrl = null;
+
+  function close() {
+    overlay.classList.remove('active');
+    confirmBox.classList.remove('active');
+    currentExtendUrl = null;
+  }
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+  closeBtn.addEventListener('click', close);
+
+  extendBtn.addEventListener('click', () => {
+    confirmBox.classList.add('active');
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    confirmBox.classList.remove('active');
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    if (currentExtendUrl) {
+      window.open(currentExtendUrl, '_blank');
+      close();
+    }
+  });
+
+  root.querySelectorAll('.book-cover-wrapper').forEach(wrapper => {
+    wrapper.addEventListener('click', (e) => {
+      e.stopPropagation();
+      coverImg.src = wrapper.dataset.cover || '';
+      titleEl.textContent = wrapper.dataset.title || '';
+      const isbn = wrapper.dataset.isbn;
+      if (isbn) {
+        isbnEl.textContent = `ISBN : ${isbn}`;
+        isbnEl.style.display = '';
+      } else {
+        isbnEl.textContent = '';
+        isbnEl.style.display = 'none';
+      }
+      currentExtendUrl = wrapper.dataset.extendUrl || null;
+      extendBtn.style.display = (wrapper.dataset.canExtend === 'true') ? '' : 'none';
+      confirmBox.classList.remove('active');
+      overlay.classList.add('active');
+    });
+  });
+}
+
 class MediathequeCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
@@ -230,33 +436,12 @@ class MediathequeCard extends HTMLElement {
             flex-shrink: 0;
             cursor: pointer;
           }
-          .book-cover-preview {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 999;
-            background: rgba(0,0,0,0.7);
-            align-items: center;
-            justify-content: center;
-          }
-          .book-cover-preview.active {
-            display: flex;
-          }
-          .book-cover-preview img {
-            max-width: 80vw;
-            max-height: 80vh;
-            border-radius: 8px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
-            object-fit: contain;
-          }
           .empty-state {
             padding: 24px 16px;
             text-align: center;
             color: var(--secondary-text-color);
           }
+          ${getModalStyles()}
         </style>
 
         <div class="mediatheque-header">
@@ -291,12 +476,17 @@ class MediathequeCard extends HTMLElement {
 
         html += `
           <div class="book-row">
-            <div class="book-cover-wrapper" data-cover="${coverSrc}">
+            <div class="book-cover-wrapper"
+                 data-cover="${escapeAttr(coverSrc)}"
+                 data-title="${escapeAttr(loan.titre)}"
+                 data-isbn="${escapeAttr(loan.isbn || '')}"
+                 data-can-extend="${loan.can_extend ? 'true' : 'false'}"
+                 data-extend-url="${escapeAttr(loan.extend_url || '')}">
               <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
                    onerror="this.src='${PLACEHOLDER_SVG}'" />
             </div>
             <div class="book-info">
-              <div class="book-title" title="${loan.titre}">${loan.titre}</div>
+              <div class="book-title" title="${escapeAttr(loan.titre)}">${loan.titre}</div>
               <div class="book-date">Retour : ${loan.due_date_display}</div>
               <div class="book-badges">
                 <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
@@ -310,34 +500,12 @@ class MediathequeCard extends HTMLElement {
       html += `</div>`;
     }
 
-    html += `
-        <div class="book-cover-preview" id="cover-preview">
-          <img src="" alt="" />
-        </div>
-      </ha-card>`;
+    html += getModalHtml('mc-modal-main');
+    html += `</ha-card>`;
     this.innerHTML = html;
     this._lastHtml = true;
 
-    // Cover click to preview
-    const preview = this.querySelector('#cover-preview');
-    const previewImg = preview.querySelector('img');
-
-    this.querySelectorAll('.book-cover-wrapper').forEach(wrapper => {
-      wrapper.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const src = wrapper.dataset.cover;
-        if (preview.classList.contains('active')) {
-          preview.classList.remove('active');
-        } else {
-          previewImg.src = src;
-          preview.classList.add('active');
-        }
-      });
-    });
-
-    preview.addEventListener('click', () => {
-      preview.classList.remove('active');
-    });
+    bindModal(this, 'mc-modal-main');
   }
 }
 
@@ -528,33 +696,12 @@ class MediathequeDueCard extends HTMLElement {
             font-weight: 600;
             white-space: nowrap;
           }
-          .book-cover-preview {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 999;
-            background: rgba(0,0,0,0.7);
-            align-items: center;
-            justify-content: center;
-          }
-          .book-cover-preview.active {
-            display: flex;
-          }
-          .book-cover-preview img {
-            max-width: 80vw;
-            max-height: 80vh;
-            border-radius: 8px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
-            object-fit: contain;
-          }
           .empty-state {
             padding: 24px 16px;
             text-align: center;
             color: var(--secondary-text-color);
           }
+          ${getModalStyles()}
         </style>
 
         <div class="mediatheque-header">
@@ -575,51 +722,34 @@ class MediathequeDueCard extends HTMLElement {
 
       html += `
         <div class="book-row">
-          <div class="book-cover-wrapper" data-cover="${coverSrc}">
+          <div class="book-cover-wrapper"
+               data-cover="${escapeAttr(coverSrc)}"
+               data-title="${escapeAttr(loan.titre)}"
+               data-isbn="${escapeAttr(loan.isbn || '')}"
+               data-can-extend="${loan.can_extend ? 'true' : 'false'}"
+               data-extend-url="${escapeAttr(loan.extend_url || '')}">
             <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
                  onerror="this.src='${PLACEHOLDER_SVG}'" />
           </div>
           <div class="book-info">
-            <div class="book-title" title="${loan.titre}">${loan.titre}</div>
+            <div class="book-title" title="${escapeAttr(loan.titre)}">${loan.titre}</div>
             <div class="book-date">Retour : ${loan.due_date_display}</div>
             ${loan.emprunteur ? `<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>` : ''}
             <div class="book-badges">
               <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
-              ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">↻ Prolongé</span>` : ''}
-              ${loan.can_extend ? `<span class="badge-days" style="color:#1565c0;background:#bbdefb">↻ Prolongeable</span>` : ''}
+              ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>` : ''}
             </div>
           </div>
         </div>
       `;
     }
 
-    html += `
-        <div class="book-cover-preview" id="cover-preview-due">
-          <img src="" alt="" />
-        </div>
-      </ha-card>`;
+    html += getModalHtml('mc-modal-due');
+    html += `</ha-card>`;
     this.innerHTML = html;
     this._lastHtml = true;
 
-    const preview = this.querySelector('#cover-preview-due');
-    const previewImg = preview.querySelector('img');
-
-    this.querySelectorAll('.book-cover-wrapper').forEach(wrapper => {
-      wrapper.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const src = wrapper.dataset.cover;
-        if (preview.classList.contains('active')) {
-          preview.classList.remove('active');
-        } else {
-          previewImg.src = src;
-          preview.classList.add('active');
-        }
-      });
-    });
-
-    preview.addEventListener('click', () => {
-      preview.classList.remove('active');
-    });
+    bindModal(this, 'mc-modal-due');
   }
 }
 
