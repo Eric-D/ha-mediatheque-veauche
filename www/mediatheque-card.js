@@ -101,45 +101,68 @@ function getModalStyles() {
       background: #1565c0;
       color: #fff;
     }
-    .mc-modal-confirm {
+    .mc-confirm-overlay {
       display: none;
-      margin-top: 12px;
-      padding: 12px;
-      border-radius: 8px;
-      background: #fff3e0;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 1000;
+      background: rgba(0,0,0,0.75);
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .mc-confirm-overlay.active {
+      display: flex;
+    }
+    .mc-confirm-dialog {
+      background: var(--card-background-color, #fff);
+      border-radius: 12px;
+      max-width: 320px;
+      width: 100%;
+      padding: 24px;
       text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
-    .mc-modal-confirm.active {
-      display: block;
+    .mc-confirm-icon {
+      font-size: 2.5em;
+      margin-bottom: 12px;
     }
-    .mc-modal-confirm p {
-      margin: 0 0 10px;
-      font-size: 0.9em;
-      color: #e65100;
-      font-weight: 500;
+    .mc-confirm-title {
+      font-size: 1em;
+      font-weight: 600;
+      color: var(--primary-text-color);
+      margin-bottom: 4px;
     }
-    .mc-modal-confirm-actions {
+    .mc-confirm-text {
+      font-size: 0.85em;
+      color: var(--secondary-text-color);
+      margin-bottom: 16px;
+    }
+    .mc-confirm-actions {
       display: flex;
       gap: 8px;
-      justify-content: center;
     }
     .mc-modal-btn-cancel {
+      flex: 1;
       background: var(--secondary-background-color, #e0e0e0);
       color: var(--primary-text-color);
-      padding: 8px 20px;
+      padding: 10px 16px;
       border: none;
       border-radius: 8px;
-      font-size: 0.85em;
+      font-size: 0.9em;
       font-weight: 600;
       cursor: pointer;
     }
     .mc-modal-btn-confirm {
-      background: #c62828;
+      flex: 1;
+      background: #1565c0;
       color: #fff;
-      padding: 8px 20px;
+      padding: 10px 16px;
       border: none;
       border-radius: 8px;
-      font-size: 0.85em;
+      font-size: 0.9em;
       font-weight: 600;
       cursor: pointer;
     }
@@ -158,13 +181,17 @@ function getModalHtml(id) {
             <button class="mc-modal-btn mc-modal-btn-close">Fermer</button>
             <button class="mc-modal-btn mc-modal-btn-extend" style="display:none">Prolonger</button>
           </div>
-          <div class="mc-modal-confirm">
-            <p>Confirmer la prolongation ?</p>
-            <div class="mc-modal-confirm-actions">
-              <button class="mc-modal-btn-cancel">Annuler</button>
-              <button class="mc-modal-btn-confirm">Confirmer</button>
-            </div>
-          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mc-confirm-overlay" id="${id}-confirm">
+      <div class="mc-confirm-dialog">
+        <div class="mc-confirm-icon">↻</div>
+        <div class="mc-confirm-title">Prolonger cet emprunt ?</div>
+        <div class="mc-confirm-text"></div>
+        <div class="mc-confirm-actions">
+          <button class="mc-modal-btn-cancel">Annuler</button>
+          <button class="mc-modal-btn-confirm">Confirmer</button>
         </div>
       </div>
     </div>
@@ -177,41 +204,49 @@ function escapeAttr(str) {
 
 function bindModal(root, modalId) {
   const overlay = root.querySelector(`#${modalId}`);
-  const modal = overlay.querySelector('.mc-modal');
   const coverImg = overlay.querySelector('.mc-modal-cover');
   const titleEl = overlay.querySelector('.mc-modal-title');
   const isbnEl = overlay.querySelector('.mc-modal-isbn');
   const extendBtn = overlay.querySelector('.mc-modal-btn-extend');
   const closeBtn = overlay.querySelector('.mc-modal-btn-close');
-  const confirmBox = overlay.querySelector('.mc-modal-confirm');
-  const cancelBtn = overlay.querySelector('.mc-modal-btn-cancel');
-  const confirmBtn = overlay.querySelector('.mc-modal-btn-confirm');
+
+  const confirmOverlay = root.querySelector(`#${modalId}-confirm`);
+  const confirmText = confirmOverlay.querySelector('.mc-confirm-text');
+  const cancelBtn = confirmOverlay.querySelector('.mc-modal-btn-cancel');
+  const confirmBtn = confirmOverlay.querySelector('.mc-modal-btn-confirm');
 
   let currentExtendUrl = null;
+  let currentTitle = '';
 
-  function close() {
+  function closeDetail() {
     overlay.classList.remove('active');
-    confirmBox.classList.remove('active');
     currentExtendUrl = null;
   }
 
+  function closeConfirm() {
+    confirmOverlay.classList.remove('active');
+  }
+
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
+    if (e.target === overlay) closeDetail();
   });
-  closeBtn.addEventListener('click', close);
+  closeBtn.addEventListener('click', closeDetail);
 
   extendBtn.addEventListener('click', () => {
-    confirmBox.classList.add('active');
+    confirmText.textContent = currentTitle;
+    confirmOverlay.classList.add('active');
   });
 
-  cancelBtn.addEventListener('click', () => {
-    confirmBox.classList.remove('active');
+  confirmOverlay.addEventListener('click', (e) => {
+    if (e.target === confirmOverlay) closeConfirm();
   });
+  cancelBtn.addEventListener('click', closeConfirm);
 
   confirmBtn.addEventListener('click', () => {
     if (currentExtendUrl) {
       window.open(currentExtendUrl, '_blank');
-      close();
+      closeConfirm();
+      closeDetail();
     }
   });
 
@@ -219,7 +254,8 @@ function bindModal(root, modalId) {
     wrapper.addEventListener('click', (e) => {
       e.stopPropagation();
       coverImg.src = wrapper.dataset.cover || '';
-      titleEl.textContent = wrapper.dataset.title || '';
+      currentTitle = wrapper.dataset.title || '';
+      titleEl.textContent = currentTitle;
       const isbn = wrapper.dataset.isbn;
       if (isbn) {
         isbnEl.textContent = `ISBN : ${isbn}`;
@@ -230,16 +266,21 @@ function bindModal(root, modalId) {
       }
       currentExtendUrl = wrapper.dataset.extendUrl || null;
       extendBtn.style.display = (wrapper.dataset.canExtend === 'true') ? '' : 'none';
-      confirmBox.classList.remove('active');
       overlay.classList.add('active');
     });
   });
+}
+
+function isModalOpen(root) {
+  const el = root.querySelector('.mc-modal-overlay.active') || root.querySelector('.mc-confirm-overlay.active');
+  return !!el;
 }
 
 class MediathequeCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    if (isModalOpen(this)) return;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
       this._render();
@@ -516,6 +557,7 @@ class MediathequeDueCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    if (isModalOpen(this)) return;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
       this._render();
