@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.11.1';
+const MEDIATHEQUE_CARD_VERSION = '1.11.2';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -468,7 +468,7 @@ class MediathequeCard extends HTMLElement {
     const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
     let badgesHtml = `<span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>`;
-    if (loan.extended && enabledBadges.includes('not_extendable')) {
+    if (loan.extended) {
       badgesHtml += `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>`;
     }
 
