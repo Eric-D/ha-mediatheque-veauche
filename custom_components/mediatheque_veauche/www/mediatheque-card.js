@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.11.4';
+const MEDIATHEQUE_CARD_VERSION = '1.11.5';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -406,8 +406,18 @@ function isModalOpen(root) {
 
 class MediathequeCard extends HTMLElement {
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
     if (!this._config) return;
+
+    // Ne re-render que si l'état de l'entité observée a changé
+    const entityId = this._config.entity;
+    if (entityId && oldHass) {
+      const oldState = oldHass.states[entityId];
+      const newState = hass.states[entityId];
+      if (oldState === newState) return;
+    }
+
     if (isModalOpen(this)) return;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
