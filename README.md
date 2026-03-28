@@ -9,7 +9,10 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 - Connexion automatique au compte de la médiathèque
 - Récupération des emprunts du titulaire et de la famille
 - Sensor avec le nombre total d'emprunts
-- Carte Lovelace avec affichage par membre, couvertures, dates et statuts
+- Carte Lovelace unifiée avec deux modes d'affichage (tous les emprunts / à rendre cette semaine)
+- Badges de statut configurables (retard, urgent, bientôt, etc.)
+- Code-barres de la carte de bibliothèque
+- Prolongation des emprunts depuis la carte
 - Intervalle de mise à jour configurable
 - Compatible HACS
 
@@ -18,8 +21,7 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 ### Manuelle
 
 1. Copier le dossier `custom_components/mediatheque_veauche/` dans votre dossier `config/custom_components/`
-2. Copier `www/mediatheque-card.js` dans votre dossier `config/www/`
-3. Redémarrer Home Assistant
+2. Redémarrer Home Assistant
 
 ### HACS
 
@@ -38,14 +40,31 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 
 ### Ressource Lovelace
 
-Ajouter la ressource JavaScript dans **Paramètres > Tableaux de bord > Ressources** :
+La ressource JavaScript est enregistrée automatiquement par l'intégration. Si elle n'apparaît pas, ajoutez-la manuellement dans **Paramètres > Tableaux de bord > Ressources** :
 
 ```
-URL : /local/mediatheque-card.js
+URL : /mediatheque_veauche/mediatheque-card.js
 Type : Module JavaScript
 ```
 
 ### Carte Lovelace
+
+La carte `mediatheque-card` propose deux modes d'affichage via l'option `mode`.
+
+#### Options de configuration
+
+| Option         | Type     | Défaut                      | Description                                      |
+|----------------|----------|-----------------------------|--------------------------------------------------|
+| `entity`       | string   | **obligatoire**             | Entité sensor à utiliser                         |
+| `mode`         | string   | `all`                       | Mode d'affichage : `all` ou `due`                |
+| `title`        | string   | *(selon le mode)*           | Titre personnalisé de la carte                   |
+| `badges`       | list     | *(tous)*                    | Types de badges à afficher (voir ci-dessous)     |
+| `card_id`      | string   | *(auto)*                    | Identifiant carte pour le code-barres            |
+| `total_entity` | string   | *(auto)*                    | Entité du total (mode `due` uniquement)          |
+
+#### Mode `all` (défaut)
+
+Affiche tous les emprunts groupés par membre de la famille.
 
 ```yaml
 type: custom:mediatheque-card
@@ -53,9 +72,44 @@ entity: sensor.emprunts_mediatheque
 title: Médiathèque de Veauche  # optionnel
 ```
 
-## Structure du sensor
+#### Mode `due`
 
-Le sensor `sensor.emprunts_mediatheque` expose :
+Affiche uniquement les livres à rendre dans les 7 prochains jours, sous forme de liste plate.
+
+```yaml
+type: custom:mediatheque-card
+entity: sensor.emprunts_due_week
+mode: due
+title: A rendre cette semaine  # optionnel
+```
+
+#### Badges
+
+Par défaut, tous les badges sont affichés. Vous pouvez choisir lesquels afficher via l'option `badges` :
+
+| Badge            | Description                                    | Apparence       |
+|------------------|------------------------------------------------|-----------------|
+| `overdue`        | En retard (jours négatifs)                     | Rouge           |
+| `today`          | A rendre aujourd'hui                           | Orange          |
+| `urgent`         | 1 à 3 jours restants                          | Orange          |
+| `soon`           | 4 à 7 jours restants                          | Jaune           |
+| `ok`             | Plus de 7 jours restants                       | Vert            |
+| `not_extendable` | Emprunt déjà prolongé (non prolongeable)       | Violet          |
+
+Exemple pour n'afficher que les badges d'alerte :
+
+```yaml
+type: custom:mediatheque-card
+entity: sensor.emprunts_mediatheque
+badges:
+  - overdue
+  - today
+  - urgent
+```
+
+## Structure des sensors
+
+### `sensor.emprunts_mediatheque`
 
 - **state** : nombre total d'emprunts
 - **attributes** :
@@ -64,6 +118,7 @@ Le sensor `sensor.emprunts_mediatheque` expose :
 {
   "compte": "Jean",
   "total": 5,
+  "card_id": "123456",
   "membres": {
     "Jean": [
       {
@@ -73,13 +128,38 @@ Le sensor `sensor.emprunts_mediatheque` expose :
         "due_date_display": "15 mars 2024",
         "days_left": 7,
         "can_extend": true,
+        "extended": false,
         "extend_url": "https://mediatheque.veauche.fr/...",
         "cover_url": "https://mediatheque.veauche.fr/images/covers/...",
+        "isbn": "978-2-07-036294-0",
         "emprunteur": "Jean"
       }
     ],
     "Lucas": [...]
   }
+}
+```
+
+### `sensor.emprunts_due_week`
+
+- **state** : nombre de livres à rendre dans les 7 jours
+- **attributes** :
+
+```json
+{
+  "livres": [
+    {
+      "titre": "Le Petit Prince",
+      "due_date_display": "15 mars 2024",
+      "days_left": 3,
+      "can_extend": true,
+      "extended": false,
+      "emprunteur": "Jean",
+      "cover_url": "...",
+      "isbn": "...",
+      "extend_url": "..."
+    }
+  ]
 }
 ```
 

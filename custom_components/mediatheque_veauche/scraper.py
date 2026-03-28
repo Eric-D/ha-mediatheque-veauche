@@ -33,6 +33,7 @@ class MediathequeVeaucheClient:
         self._password = password
         self._session: requests.Session | None = None
         self._lastname: str = ""
+        self._borrowings_html: str = ""
 
     def login(self) -> None:
         """Authenticate against the Joomla site."""

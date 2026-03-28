@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.8.1';
+const MEDIATHEQUE_CARD_VERSION = '1.9.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -15,19 +15,16 @@ function _mcLog(level, card, msg, ...args) {
   console[level](prefix + ' ' + msg, ...styles, ...args);
 }
 
-const MONTHS_FR = [
-  '', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
-];
-
 const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='76' viewBox='0 0 52 76'%3E%3Crect width='52' height='76' fill='%23e0e0e0' rx='4'/%3E%3Ctext x='26' y='42' text-anchor='middle' font-family='sans-serif' font-size='20' fill='%239e9e9e'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E`;
 
+const ALL_BADGES = ['overdue', 'today', 'urgent', 'soon', 'ok', 'not_extendable'];
+
 function getDaysChip(daysLeft) {
-  if (daysLeft < 0) return { text: `✗ ${Math.abs(daysLeft)}j de retard`, color: '#b71c1c', bg: '#ffcdd2' };
-  if (daysLeft === 0) return { text: "⚠ Aujourd'hui", color: '#d84315', bg: '#ffe0b2' };
-  if (daysLeft <= 3) return { text: `⚠ ${daysLeft}j restants`, color: '#d84315', bg: '#ffe0b2' };
-  if (daysLeft <= 7) return { text: `⚡ ${daysLeft}j restants`, color: '#f57f17', bg: '#fff9c4' };
-  return { text: `✓ ${daysLeft}j restants`, color: '#2e7d32', bg: '#c8e6c9' };
+  if (daysLeft < 0) return { type: 'overdue', text: `✗ ${Math.abs(daysLeft)}j de retard`, color: '#b71c1c', bg: '#ffcdd2' };
+  if (daysLeft === 0) return { type: 'today', text: "⚠ Aujourd'hui", color: '#d84315', bg: '#ffe0b2' };
+  if (daysLeft <= 3) return { type: 'urgent', text: `⚠ ${daysLeft}j restants`, color: '#d84315', bg: '#ffe0b2' };
+  if (daysLeft <= 7) return { type: 'soon', text: `⚡ ${daysLeft}j restants`, color: '#f57f17', bg: '#fff9c4' };
+  return { type: 'ok', text: `✓ ${daysLeft}j restants`, color: '#2e7d32', bg: '#c8e6c9' };
 }
 
 // Code 128B barcode encoder → SVG
@@ -55,12 +52,15 @@ const CODE128B_PATTERNS = [
 ];
 
 function generateCode128Svg(text, height = 80) {
+  if (!text) return '';
   const codes = [];
   const startCode = 104; // Start B
   codes.push(startCode);
   let checksum = startCode;
   for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i) - 32;
+    const charCode = text.charCodeAt(i);
+    if (charCode < 32 || charCode > 126) continue; // skip non-printable
+    const code = charCode - 32;
     codes.push(code);
     checksum += code * (i + 1);
   }
@@ -68,7 +68,13 @@ function generateCode128Svg(text, height = 80) {
   codes.push(106); // Stop
 
   let binary = '';
-  for (const c of codes) binary += CODE128B_PATTERNS[c];
+  for (const c of codes) {
+    if (c >= 0 && c < CODE128B_PATTERNS.length) {
+      binary += CODE128B_PATTERNS[c];
+    }
+  }
+
+  if (!binary) return '';
 
   const barWidth = 2;
   const width = binary.length * barWidth;
@@ -314,12 +320,18 @@ function getModalHtml(id) {
   `;
 }
 
-function escapeAttr(str) {
-  return (str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+function escapeHtml(str) {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function bindModal(root, modalId, hass) {
   const overlay = root.querySelector(`#${modalId}`);
+  if (!overlay) return;
   const coverImg = overlay.querySelector('.mc-modal-cover');
   const titleEl = overlay.querySelector('.mc-modal-title');
   const isbnEl = overlay.querySelector('.mc-modal-isbn');
@@ -327,6 +339,7 @@ function bindModal(root, modalId, hass) {
   const closeBtn = overlay.querySelector('.mc-modal-btn-close');
 
   const confirmOverlay = root.querySelector(`#${modalId}-confirm`);
+  if (!confirmOverlay) return;
   const confirmText = confirmOverlay.querySelector('.mc-confirm-text');
   const cancelBtn = confirmOverlay.querySelector('.mc-modal-btn-cancel');
   const confirmBtn = confirmOverlay.querySelector('.mc-modal-btn-confirm');
@@ -400,19 +413,32 @@ class MediathequeCard extends HTMLElement {
     try {
       this._render();
     } catch (e) {
-      _mcLog('error', 'main', 'Render error: %o', e);
+      _mcLog('error', 'card', 'Render error: %o', e);
     }
   }
 
   setConfig(config) {
     if (!config.entity) {
-      _mcLog('warn', 'main', 'Config sans entity, config reçue: %o — attente…', config);
-      this._config = config;
-      return;
+      throw new Error("Configuration requise : 'entity'");
     }
-    _mcLog('info', 'main', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
+    if (config.mode && config.mode !== 'all' && config.mode !== 'due') {
+      throw new Error("'mode' doit être 'all' ou 'due'");
+    }
+    if (config.badges !== undefined) {
+      if (!Array.isArray(config.badges)) {
+        throw new Error("'badges' doit être une liste");
+      }
+      const invalid = config.badges.filter(b => !ALL_BADGES.includes(b));
+      if (invalid.length > 0) {
+        throw new Error(`Badges invalides : ${invalid.join(', ')}. Valeurs possibles : ${ALL_BADGES.join(', ')}`);
+      }
+    }
+    _mcLog('info', 'card', 'Config OK, entity=%s, mode=%s, version=%s', config.entity, config.mode || 'all', MEDIATHEQUE_CARD_VERSION);
     this._config = config;
-    this._rendered = false;
+  }
+
+  static getStubConfig() {
+    return { entity: '', mode: 'all' };
   }
 
   _scheduleRetry() {
@@ -420,57 +446,87 @@ class MediathequeCard extends HTMLElement {
     this._retryCount = (this._retryCount || 0) + 1;
     if (this._retryCount > 10) return;
     const delay = Math.min(2000 * this._retryCount, 15000);
-    _mcLog('info', 'main', 'Retry %d dans %dms…', this._retryCount, delay);
+    _mcLog('info', 'card', 'Retry %d dans %dms…', this._retryCount, delay);
     this._retryTimer = setTimeout(() => {
       this._retryTimer = null;
       if (this._hass && this._config) {
-        try { this._render(); } catch (e) { _mcLog('error', 'main', 'Retry render error: %o', e); }
+        try { this._render(); } catch (e) { _mcLog('error', 'card', 'Retry render error: %o', e); }
       }
     }, delay);
   }
 
   getCardSize() {
-    return 4;
+    return (this._config && this._config.mode === 'due') ? 3 : 4;
+  }
+
+  _renderBookRow(loan, enabledBadges, showEmprunteur) {
+    const chip = getDaysChip(loan.days_left);
+    const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
+
+    let badgesHtml = '';
+    if (enabledBadges.includes(chip.type)) {
+      badgesHtml += `<span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>`;
+    }
+    if (loan.extended && enabledBadges.includes('not_extendable')) {
+      badgesHtml += `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>`;
+    }
+
+    const titre = escapeHtml(loan.titre);
+    const dueDateDisplay = escapeHtml(loan.due_date_display);
+    const emprunteur = escapeHtml(loan.emprunteur || '');
+
+    return `
+      <div class="book-row">
+        <div class="book-cover-wrapper"
+             data-cover="${escapeHtml(coverSrc)}"
+             data-title="${titre}"
+             data-isbn="${escapeHtml(loan.isbn || '')}"
+             data-can-extend="${loan.can_extend ? 'true' : 'false'}"
+             data-extend-url="${escapeHtml(loan.extend_url || '')}">
+          <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
+               onerror="this.src='${PLACEHOLDER_SVG}'" />
+        </div>
+        <div class="book-info">
+          <div class="book-title" title="${titre}">${titre}</div>
+          <div class="book-date">Retour : ${dueDateDisplay}</div>
+          ${showEmprunteur && loan.emprunteur ? `<div class="book-emprunteur">Emprunteur : ${emprunteur}</div>` : ''}
+          <div class="book-badges">${badgesHtml}</div>
+        </div>
+      </div>
+    `;
   }
 
   _render() {
     const entityId = this._config.entity;
-    if (!entityId) {
-      _mcLog('warn', 'main', 'Pas d\'entity configurée, attente…');
-      return;
-    }
+    const mode = this._config.mode || 'all';
     const state = this._hass.states[entityId];
-
-    const titre = this._config.title || 'Médiathèque de Veauche';
+    const title = escapeHtml(this._config.title || (mode === 'due' ? 'A rendre cette semaine' : 'Médiathèque de Veauche'));
+    const enabledBadges = this._config.badges || ALL_BADGES;
 
     // No state or unavailable: keep last render if available, schedule retry
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
-      _mcLog('warn', 'main', '%s — %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
+      _mcLog('warn', 'card', '%s — %s %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
       this._scheduleRetry();
       if (this._lastHtml) return;
       this.innerHTML = `
         <ha-card>
           <div class="mediatheque-header">
-            <span class="mediatheque-title">${titre}</span>
+            <span class="mediatheque-title">${title}</span>
           </div>
           <div style="padding:32px 16px;text-align:center">
             <div class="mediatheque-loader"></div>
-            <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">Chargement des emprunts...</div>
+            <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">Chargement...</div>
           </div>
           <style>
             .mediatheque-loader {
-              width: 36px;
-              height: 36px;
+              width: 36px; height: 36px;
               border: 3px solid var(--divider-color, #e0e0e0);
               border-top: 3px solid var(--primary-color, #03a9f4);
-              border-radius: 50%;
-              margin: 0 auto;
+              border-radius: 50%; margin: 0 auto;
               animation: mediatheque-spin 1s linear infinite;
             }
-            @keyframes mediatheque-spin {
-              to { transform: rotate(360deg); }
-            }
+            @keyframes mediatheque-spin { to { transform: rotate(360deg); } }
           </style>
         </ha-card>`;
       return;
@@ -478,20 +534,31 @@ class MediathequeCard extends HTMLElement {
 
     // State OK — reset retry counter
     this._retryCount = 0;
+    const attrs = state.attributes || {};
 
-    const attrs = state.attributes;
-    const membres = attrs.membres || {};
-    const compte = attrs.compte || '';
-    const total = attrs.total || 0;
-    const cardId = attrs.card_id || this._config.card_id || '';
-    const title = titre;
+    // Determine card_id and header badge based on mode
+    let cardId, badgeText, badgeHighlight;
 
-    // Sort members: account holder first, then alphabetically
-    const sortedMembers = Object.keys(membres).sort((a, b) => {
-      if (a === compte) return -1;
-      if (b === compte) return 1;
-      return a.localeCompare(b);
-    });
+    if (mode === 'due') {
+      const count = parseInt(state.state) || 0;
+      const totalEntityId = this._config.total_entity;
+      const autoId = entityId.replace('_due_week', '_total');
+      const totalState = (totalEntityId && this._hass.states[totalEntityId]) || this._hass.states[autoId];
+      let totalEmprunts = null;
+      if (totalState) {
+        totalEmprunts = parseInt(totalState.state) || 0;
+        cardId = (totalState.attributes || {}).card_id || this._config.card_id || '';
+      } else {
+        cardId = this._config.card_id || '';
+      }
+      badgeText = totalEmprunts !== null ? `${count} / ${totalEmprunts}` : `${count}`;
+      badgeHighlight = count > 0;
+    } else {
+      const total = attrs.total || 0;
+      cardId = attrs.card_id || this._config.card_id || '';
+      badgeText = `${total} emprunt${total > 1 ? 's' : ''}`;
+      badgeHighlight = false;
+    }
 
     let html = `
       <ha-card>
@@ -508,8 +575,8 @@ class MediathequeCard extends HTMLElement {
             color: var(--primary-text-color);
           }
           .mediatheque-total {
-            background: var(--primary-color);
-            color: var(--text-primary-color, #fff);
+            background: ${badgeHighlight ? '#f57f17' : 'var(--primary-color)'};
+            color: ${badgeHighlight ? '#fff' : 'var(--text-primary-color, #fff)'};
             border-radius: 12px;
             padding: 2px 10px;
             font-size: 0.85em;
@@ -544,296 +611,14 @@ class MediathequeCard extends HTMLElement {
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.06));
-          }
-          .book-row:last-child {
-            border-bottom: none;
-          }
-          .book-cover {
-            width: 52px;
-            height: 76px;
-            border-radius: 4px;
-            object-fit: cover;
-            flex-shrink: 0;
-            background: var(--secondary-background-color, #f0f0f0);
-          }
-          .book-info {
-            flex: 1;
-            min-width: 0;
-          }
-          .book-title {
-            font-size: 0.9em;
-            font-weight: 500;
-            color: var(--primary-text-color);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .book-date {
-            font-size: 0.8em;
-            color: var(--secondary-text-color);
-            margin-top: 2px;
-          }
-          .book-badges {
-            display: flex;
-            gap: 6px;
-            margin-top: 4px;
-            flex-wrap: wrap;
-          }
-          .badge-days {
-            font-size: 0.75em;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-weight: 600;
-            white-space: nowrap;
-          }
-          .book-cover-wrapper {
-            position: relative;
-            flex-shrink: 0;
-            cursor: pointer;
-          }
-          .empty-state {
-            padding: 24px 16px;
-            text-align: center;
-            color: var(--secondary-text-color);
-          }
-          ${getModalStyles()}
-        </style>
-
-        <div class="mediatheque-header">
-          <span class="mediatheque-title">${title}</span>
-          <span style="display:flex;align-items:center;gap:6px">
-            <span class="mediatheque-total">${total} emprunt${total > 1 ? 's' : ''}</span>
-            ${cardId ? `<button class="mc-barcode-btn" id="mc-barcode-trigger" title="Ma carte">|||</button>` : ''}
-          </span>
-        </div>
-    `;
-
-    if (cardId) {
-      html += `
-        <div class="mc-barcode-overlay" id="mc-barcode-modal">
-          <div class="mc-barcode-dialog">
-            <h3>Ma carte</h3>
-            <div class="mc-barcode-id">${escapeAttr(cardId)}</div>
-            ${generateCode128Svg(cardId)}
-            <br><button class="mc-barcode-close">Fermer</button>
-          </div>
-        </div>
-      `;
-    }
-
-    if (sortedMembers.length === 0) {
-      html += `<div class="empty-state">Aucun emprunt en cours</div>`;
-    }
-
-    for (const member of sortedMembers) {
-      const loans = membres[member] || [];
-      const icon = member === compte ? '👤' : '👦';
-
-      // Sort by urgency: overdue first, then by days_left ascending
-      const sorted = [...loans].sort((a, b) => a.days_left - b.days_left);
-
-      html += `
-        <div class="member-section">
-          <div class="member-header">
-            <span class="member-icon">${icon}</span>
-            <span class="member-name">${member}</span>
-            <span class="member-count">${loans.length}</span>
-          </div>
-      `;
-
-      for (const loan of sorted) {
-        const chip = getDaysChip(loan.days_left);
-        const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
-
-        html += `
-          <div class="book-row">
-            <div class="book-cover-wrapper"
-                 data-cover="${escapeAttr(coverSrc)}"
-                 data-title="${escapeAttr(loan.titre)}"
-                 data-isbn="${escapeAttr(loan.isbn || '')}"
-                 data-can-extend="${loan.can_extend ? 'true' : 'false'}"
-                 data-extend-url="${escapeAttr(loan.extend_url || '')}">
-              <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
-                   onerror="this.src='${PLACEHOLDER_SVG}'" />
-            </div>
-            <div class="book-info">
-              <div class="book-title" title="${escapeAttr(loan.titre)}">${loan.titre}</div>
-              <div class="book-date">Retour : ${loan.due_date_display}</div>
-              <div class="book-badges">
-                <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
-                ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>` : ''}
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      html += `</div>`;
-    }
-
-    html += getModalHtml('mc-modal-main');
-    html += `</ha-card>`;
-    this.innerHTML = html;
-    this._lastHtml = true;
-
-    bindModal(this, 'mc-modal-main', this._hass);
-
-    // Barcode modal
-    const bcTrigger = this.querySelector('#mc-barcode-trigger');
-    const bcOverlay = this.querySelector('#mc-barcode-modal');
-    if (bcTrigger && bcOverlay) {
-      const bcClose = bcOverlay.querySelector('.mc-barcode-close');
-      bcTrigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        bcOverlay.classList.add('active');
-      });
-      bcOverlay.addEventListener('click', (e) => {
-        if (e.target === bcOverlay) bcOverlay.classList.remove('active');
-      });
-      bcClose.addEventListener('click', () => bcOverlay.classList.remove('active'));
-    }
-  }
-}
-
-customElements.define('mediatheque-card', MediathequeCard);
-
-
-class MediathequeDueCard extends HTMLElement {
-  set hass(hass) {
-    this._hass = hass;
-    if (!this._config) return;
-    if (isModalOpen(this)) return;
-    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-    try {
-      this._render();
-    } catch (e) {
-      _mcLog('error', 'due', 'Render error: %o', e);
-    }
-  }
-
-  setConfig(config) {
-    if (!config.entity) {
-      _mcLog('warn', 'due', 'Config sans entity, config reçue: %o — attente…', config);
-      this._config = config;
-      return;
-    }
-    _mcLog('info', 'due', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
-    this._config = config;
-  }
-
-  _scheduleRetry() {
-    if (this._retryTimer) return;
-    this._retryCount = (this._retryCount || 0) + 1;
-    if (this._retryCount > 10) return;
-    const delay = Math.min(2000 * this._retryCount, 15000);
-    _mcLog('info', 'due', 'Retry %d dans %dms…', this._retryCount, delay);
-    this._retryTimer = setTimeout(() => {
-      this._retryTimer = null;
-      if (this._hass && this._config) {
-        try { this._render(); } catch (e) { _mcLog('error', 'due', 'Retry render error: %o', e); }
-      }
-    }, delay);
-  }
-
-  getCardSize() {
-    return 3;
-  }
-
-  _render() {
-    const entityId = this._config.entity;
-    if (!entityId) {
-      _mcLog('warn', 'due', 'Pas d\'entity configurée, attente…');
-      return;
-    }
-    const state = this._hass.states[entityId];
-
-    const title = this._config.title || 'A rendre cette semaine';
-
-    if (!state || state.state === 'unavailable' || state.state === 'unknown') {
-      const reason = !state ? 'entity not found' : `state=${state.state}`;
-      _mcLog('warn', 'due', '%s — %s %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
-      this._scheduleRetry();
-      if (this._lastHtml) return;
-      this.innerHTML = `
-        <ha-card>
-          <div class="mediatheque-header">
-            <span class="mediatheque-title">${title}</span>
-          </div>
-          <div style="padding:32px 16px;text-align:center">
-            <div class="mediatheque-loader"></div>
-            <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">Chargement...</div>
-          </div>
-          <style>
-            .mediatheque-loader {
-              width: 36px;
-              height: 36px;
-              border: 3px solid var(--divider-color, #e0e0e0);
-              border-top: 3px solid var(--primary-color, #03a9f4);
-              border-radius: 50%;
-              margin: 0 auto;
-              animation: mediatheque-spin 1s linear infinite;
-            }
-            @keyframes mediatheque-spin {
-              to { transform: rotate(360deg); }
-            }
-          </style>
-        </ha-card>`;
-      return;
-    }
-
-    // State OK — reset retry counter
-    this._retryCount = 0;
-
-    const attrs = state.attributes;
-    const livres = attrs.livres || [];
-    const count = parseInt(state.state) || 0;
-
-    // Get total and card_id from total_entity config or auto-detect
-    let totalEmprunts = null;
-    let dueCardId = '';
-    const totalEntityId = this._config.total_entity;
-    const autoId = entityId.replace('_due_week', '_total');
-    const totalState = (totalEntityId && this._hass.states[totalEntityId]) || this._hass.states[autoId];
-    if (totalState) {
-      totalEmprunts = parseInt(totalState.state) || 0;
-      dueCardId = (totalState.attributes || {}).card_id || '';
-    }
-
-    const badgeText = totalEmprunts !== null ? `${count} / ${totalEmprunts}` : `${count}`;
-
-    let html = `
-      <ha-card>
-        <style>
-          .mediatheque-header {
-            padding: 16px 16px 8px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-          }
-          .mediatheque-title {
-            font-size: 1.1em;
-            font-weight: 500;
-            color: var(--primary-text-color);
-          }
-          .mediatheque-total {
-            background: ${count > 0 ? '#f57f17' : 'var(--primary-color)'};
-            color: ${count > 0 ? '#fff' : 'var(--text-primary-color, #fff)'};
-            border-radius: 12px;
-            padding: 2px 10px;
-            font-size: 0.85em;
-            font-weight: 600;
-          }
-          .book-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
             padding: 8px 16px;
             border-bottom: 1px solid var(--divider-color, rgba(0,0,0,0.06));
           }
           .book-row:last-child {
             border-bottom: none;
+          }
+          .member-section .book-row {
+            padding: 8px 0;
           }
           .book-cover {
             width: 52px;
@@ -895,78 +680,93 @@ class MediathequeDueCard extends HTMLElement {
           <span class="mediatheque-title">${title}</span>
           <span style="display:flex;align-items:center;gap:6px">
             <span class="mediatheque-total">${badgeText}</span>
-            ${dueCardId ? `<button class="mc-barcode-btn" id="mc-barcode-trigger-due" title="Ma carte">|||</button>` : ''}
+            ${cardId ? `<button class="mc-barcode-btn" id="mc-barcode-trigger" title="Ma carte">|||</button>` : ''}
           </span>
         </div>
     `;
 
-    if (dueCardId) {
+    if (cardId) {
       html += `
-        <div class="mc-barcode-overlay" id="mc-barcode-modal-due">
+        <div class="mc-barcode-overlay" id="mc-barcode-modal">
           <div class="mc-barcode-dialog">
             <h3>Ma carte</h3>
-            <div class="mc-barcode-id">${escapeAttr(dueCardId)}</div>
-            ${generateCode128Svg(dueCardId)}
+            <div class="mc-barcode-id">${escapeHtml(cardId)}</div>
+            ${generateCode128Svg(cardId)}
             <br><button class="mc-barcode-close">Fermer</button>
           </div>
         </div>
       `;
     }
 
-    if (livres.length === 0) {
-      html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
-    }
+    if (mode === 'due') {
+      // Mode "due" : liste plate des livres à rendre
+      const livres = attrs.livres || [];
 
-    const sorted = [...livres].sort((a, b) => a.days_left - b.days_left);
+      if (livres.length === 0) {
+        html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
+      }
 
-    for (const loan of sorted) {
-      const chip = getDaysChip(loan.days_left);
-      const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
+      const sorted = [...livres].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+      for (const loan of sorted) {
+        html += this._renderBookRow(loan, enabledBadges, true);
+      }
+    } else {
+      // Mode "all" : emprunts groupés par membre
+      const membres = attrs.membres || {};
+      const compte = attrs.compte || '';
 
-      html += `
-        <div class="book-row">
-          <div class="book-cover-wrapper"
-               data-cover="${escapeAttr(coverSrc)}"
-               data-title="${escapeAttr(loan.titre)}"
-               data-isbn="${escapeAttr(loan.isbn || '')}"
-               data-can-extend="${loan.can_extend ? 'true' : 'false'}"
-               data-extend-url="${escapeAttr(loan.extend_url || '')}">
-            <img class="book-cover" src="${coverSrc}" alt="" loading="lazy"
-                 onerror="this.src='${PLACEHOLDER_SVG}'" />
-          </div>
-          <div class="book-info">
-            <div class="book-title" title="${escapeAttr(loan.titre)}">${loan.titre}</div>
-            <div class="book-date">Retour : ${loan.due_date_display}</div>
-            ${loan.emprunteur ? `<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>` : ''}
-            <div class="book-badges">
-              <span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>
-              ${loan.extended ? `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>` : ''}
+      const sortedMembers = Object.keys(membres).sort((a, b) => {
+        if (a === compte) return -1;
+        if (b === compte) return 1;
+        return a.localeCompare(b);
+      });
+
+      if (sortedMembers.length === 0) {
+        html += `<div class="empty-state">Aucun emprunt en cours</div>`;
+      }
+
+      for (const member of sortedMembers) {
+        const loans = membres[member] || [];
+        const icon = member === compte ? '👤' : '👦';
+        const sorted = [...loans].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+
+        html += `
+          <div class="member-section">
+            <div class="member-header">
+              <span class="member-icon">${icon}</span>
+              <span class="member-name">${escapeHtml(member)}</span>
+              <span class="member-count">${loans.length}</span>
             </div>
-          </div>
-        </div>
-      `;
+        `;
+
+        for (const loan of sorted) {
+          html += this._renderBookRow(loan, enabledBadges, false);
+        }
+
+        html += `</div>`;
+      }
     }
 
-    html += getModalHtml('mc-modal-due');
+    html += getModalHtml('mc-modal');
     html += `</ha-card>`;
     this.innerHTML = html;
     this._lastHtml = true;
 
-    bindModal(this, 'mc-modal-due', this._hass);
+    bindModal(this, 'mc-modal', this._hass);
 
     // Barcode modal
-    const bcTriggerDue = this.querySelector('#mc-barcode-trigger-due');
-    const bcOverlayDue = this.querySelector('#mc-barcode-modal-due');
-    if (bcTriggerDue && bcOverlayDue) {
-      const bcCloseDue = bcOverlayDue.querySelector('.mc-barcode-close');
-      bcTriggerDue.addEventListener('click', (e) => {
+    const bcTrigger = this.querySelector('#mc-barcode-trigger');
+    const bcOverlay = this.querySelector('#mc-barcode-modal');
+    if (bcTrigger && bcOverlay) {
+      const bcClose = bcOverlay.querySelector('.mc-barcode-close');
+      bcTrigger.addEventListener('click', (e) => {
         e.stopPropagation();
-        bcOverlayDue.classList.add('active');
+        bcOverlay.classList.add('active');
       });
-      bcOverlayDue.addEventListener('click', (e) => {
-        if (e.target === bcOverlayDue) bcOverlayDue.classList.remove('active');
+      bcOverlay.addEventListener('click', (e) => {
+        if (e.target === bcOverlay) bcOverlay.classList.remove('active');
       });
-      bcCloseDue.addEventListener('click', () => bcOverlayDue.classList.remove('active'));
+      if (bcClose) bcClose.addEventListener('click', () => bcOverlay.classList.remove('active'));
     }
   }
 }
@@ -974,20 +774,12 @@ class MediathequeDueCard extends HTMLElement {
 if (!customElements.get('mediatheque-card')) {
   customElements.define('mediatheque-card', MediathequeCard);
 }
-if (!customElements.get('mediatheque-due-card')) {
-  customElements.define('mediatheque-due-card', MediathequeDueCard);
-}
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'mediatheque-card',
   name: 'Médiathèque de Veauche',
-  description: 'Affiche les emprunts de la médiathèque de Veauche par membre',
-});
-window.customCards.push({
-  type: 'mediatheque-due-card',
-  name: 'Médiathèque - A rendre',
-  description: 'Affiche les livres à rendre cette semaine',
+  description: 'Affiche les emprunts de la médiathèque de Veauche',
 });
 
 } // end MEDIATHEQUE_CARD_LOADED guard
