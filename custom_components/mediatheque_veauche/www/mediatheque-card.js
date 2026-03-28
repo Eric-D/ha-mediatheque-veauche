@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.11.3';
+const MEDIATHEQUE_CARD_VERSION = '1.11.4';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -15,7 +15,7 @@ function _mcLog(level, card, msg, ...args) {
   console[level](prefix + ' ' + msg, ...styles, ...args);
 }
 
-const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='76' viewBox='0 0 52 76'%3E%3Crect width='52' height='76' fill='%23e0e0e0' rx='4'/%3E%3Ctext x='26' y='42' text-anchor='middle' font-family='sans-serif' font-size='20' fill='%239e9e9e'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E`;
+const PLACEHOLDER_SVG = `data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2252%22 height=%2276%22 viewBox=%220 0 52 76%22%3E%3Crect width=%2252%22 height=%2276%22 fill=%22%23e0e0e0%22 rx=%224%22/%3E%3Ctext x=%2226%22 y=%2242%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2220%22 fill=%22%239e9e9e%22%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E`;
 
 const ALL_BADGES = ['overdue', 'today', 'urgent', 'soon', 'ok', 'not_extendable'];
 
