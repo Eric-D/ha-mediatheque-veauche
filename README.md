@@ -9,8 +9,8 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 - Connexion automatique au compte de la médiathèque
 - Récupération des emprunts du titulaire et de la famille
 - Sensor avec le nombre total d'emprunts
-- Carte Lovelace unifiée avec deux modes d'affichage (tous les emprunts / à rendre cette semaine)
-- Badges de statut configurables (retard, urgent, bientôt, etc.)
+- Carte Lovelace avec affichage par membre, couvertures, dates et statuts
+- Filtrage des livres par statut d'urgence (retard, urgent, bientôt, etc.)
 - Code-barres de la carte de bibliothèque
 - Prolongation des emprunts depuis la carte
 - Intervalle de mise à jour configurable
@@ -49,63 +49,51 @@ Type : Module JavaScript
 
 ### Carte Lovelace
 
-La carte `mediatheque-card` propose deux modes d'affichage via l'option `mode`.
-
 #### Options de configuration
 
-| Option         | Type     | Défaut                      | Description                                      |
-|----------------|----------|-----------------------------|--------------------------------------------------|
-| `entity`       | string   | **obligatoire**             | Entité sensor à utiliser                         |
-| `mode`         | string   | `all`                       | Mode d'affichage : `all` ou `due`                |
-| `title`        | string   | *(selon le mode)*           | Titre personnalisé de la carte                   |
-| `badges`       | list     | *(tous)*                    | Types de badges à afficher (voir ci-dessous)     |
-| `card_id`      | string   | *(auto)*                    | Identifiant carte pour le code-barres            |
-| `total_entity` | string   | *(auto)*                    | Entité du total (mode `due` uniquement)          |
+| Option    | Type   | Défaut          | Description                                  |
+|-----------|--------|-----------------|----------------------------------------------|
+| `entity`  | string | **obligatoire** | Entité sensor à utiliser                     |
+| `title`   | string | *(auto)*        | Titre personnalisé de la carte               |
+| `badges`  | list   | *(tous)*        | Filtre les livres par type de statut         |
+| `card_id` | string | *(auto)*        | Identifiant carte pour le code-barres        |
 
-#### Mode `all` (défaut)
+#### Utilisation de base
 
-Affiche tous les emprunts groupés par membre de la famille.
+Affiche tous les emprunts groupés par membre de la famille :
 
 ```yaml
 type: custom:mediatheque-card
 entity: sensor.emprunts_mediatheque
-title: Médiathèque de Veauche  # optionnel
 ```
 
-#### Mode `due`
+#### Filtrage par badges
 
-Affiche uniquement les livres à rendre dans les 7 prochains jours, sous forme de liste plate.
+Par défaut, tous les livres sont affichés. Si vous configurez `badges`, seuls les livres correspondant aux types listés seront affichés (filtre OR) :
 
-```yaml
-type: custom:mediatheque-card
-entity: sensor.emprunts_due_week
-mode: due
-title: A rendre cette semaine  # optionnel
-```
+| Badge            | Description                                    | Jours restants | Apparence |
+|------------------|------------------------------------------------|----------------|-----------|
+| `overdue`        | En retard                                      | < 0            | Rouge     |
+| `today`          | A rendre aujourd'hui                           | 0              | Orange    |
+| `urgent`         | Retour imminent                                | 1 à 3          | Orange    |
+| `soon`           | Retour proche                                  | 4 à 7          | Jaune     |
+| `ok`             | Pas de retour imminent                         | > 7            | Vert      |
+| `not_extendable` | Emprunt déjà prolongé (non prolongeable)       | —              | Violet    |
 
-#### Badges
-
-Par défaut, tous les livres sont affichés avec leurs badges. Si vous configurez `badges`, seuls les livres correspondant aux types listés seront affichés :
-
-| Badge            | Description                                    | Apparence       |
-|------------------|------------------------------------------------|-----------------|
-| `overdue`        | En retard (jours négatifs)                     | Rouge           |
-| `today`          | A rendre aujourd'hui                           | Orange          |
-| `urgent`         | 1 à 3 jours restants                          | Orange          |
-| `soon`           | 4 à 7 jours restants                          | Jaune           |
-| `ok`             | Plus de 7 jours restants                       | Vert            |
-| `not_extendable` | Emprunt déjà prolongé (non prolongeable)       | Violet          |
-
-Exemple pour n'afficher que les livres urgents :
+Exemple pour n'afficher que les livres à rendre dans la semaine :
 
 ```yaml
 type: custom:mediatheque-card
 entity: sensor.emprunts_mediatheque
+title: A rendre cette semaine
 badges:
   - overdue
   - today
   - urgent
+  - soon
 ```
+
+Le compteur dans l'en-tête reflète le nombre de livres filtrés.
 
 ## Structure des sensors
 
@@ -137,29 +125,6 @@ badges:
     ],
     "Lucas": [...]
   }
-}
-```
-
-### `sensor.emprunts_due_week`
-
-- **state** : nombre de livres à rendre dans les 7 jours
-- **attributes** :
-
-```json
-{
-  "livres": [
-    {
-      "titre": "Le Petit Prince",
-      "due_date_display": "15 mars 2024",
-      "days_left": 3,
-      "can_extend": true,
-      "extended": false,
-      "emprunteur": "Jean",
-      "cover_url": "...",
-      "isbn": "...",
-      "extend_url": "..."
-    }
-  ]
 }
 ```
 

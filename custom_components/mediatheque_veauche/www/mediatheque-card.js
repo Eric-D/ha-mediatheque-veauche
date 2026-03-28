@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.10.0';
+const MEDIATHEQUE_CARD_VERSION = '1.11.1';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -419,10 +419,9 @@ class MediathequeCard extends HTMLElement {
 
   setConfig(config) {
     if (!config.entity) {
-      throw new Error("Configuration requise : 'entity'");
-    }
-    if (config.mode && config.mode !== 'all' && config.mode !== 'due') {
-      throw new Error("'mode' doit être 'all' ou 'due'");
+      _mcLog('warn', 'card', 'Config sans entity — attente…');
+      this._config = config;
+      return;
     }
     if (config.badges !== undefined) {
       if (!Array.isArray(config.badges)) {
@@ -433,7 +432,7 @@ class MediathequeCard extends HTMLElement {
         throw new Error(`Badges invalides : ${invalid.join(', ')}. Valeurs possibles : ${ALL_BADGES.join(', ')}`);
       }
     }
-    _mcLog('info', 'card', 'Config OK, entity=%s, mode=%s, version=%s', config.entity, config.mode || 'all', MEDIATHEQUE_CARD_VERSION);
+    _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
   }
 
@@ -538,11 +537,17 @@ class MediathequeCard extends HTMLElement {
     this._retryCount = 0;
     const attrs = state.attributes || {};
 
-    // Determine card_id and header badge based on mode
-    let cardId, badgeText, badgeHighlight;
+    // Filtre : si badges est configuré, ne montrer que les livres correspondants
+    const hasFilter = !!this._config.badges;
+
+    // Determine card_id and filtered counts based on mode
+    let cardId, badgeText, badgeHighlight, filteredData;
 
     if (mode === 'due') {
-      const count = parseInt(state.state) || 0;
+      const livres = attrs.livres || [];
+      const filtered = hasFilter ? livres.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : livres;
+      filteredData = { livres: filtered };
+
       const totalEntityId = this._config.total_entity;
       const autoId = entityId.replace('_due_week', '_total');
       const totalState = (totalEntityId && this._hass.states[totalEntityId]) || this._hass.states[autoId];
@@ -553,13 +558,26 @@ class MediathequeCard extends HTMLElement {
       } else {
         cardId = this._config.card_id || '';
       }
-      badgeText = totalEmprunts !== null ? `${count} / ${totalEmprunts}` : `${count}`;
-      badgeHighlight = count > 0;
+      badgeText = totalEmprunts !== null ? `${filtered.length} / ${totalEmprunts}` : `${filtered.length}`;
+      badgeHighlight = filtered.length > 0;
     } else {
-      const total = attrs.total || 0;
+      const membres = attrs.membres || {};
+      const compte = attrs.compte || '';
+      // Filtrer par membre
+      const filteredMembres = {};
+      let filteredTotal = 0;
+      for (const [member, loans] of Object.entries(membres)) {
+        const filtered = hasFilter ? loans.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : loans;
+        if (filtered.length > 0) {
+          filteredMembres[member] = filtered;
+          filteredTotal += filtered.length;
+        }
+      }
+      filteredData = { membres: filteredMembres, compte };
+
       cardId = attrs.card_id || this._config.card_id || '';
-      badgeText = `${total} emprunt${total > 1 ? 's' : ''}`;
-      badgeHighlight = false;
+      badgeText = `${filteredTotal} emprunt${filteredTotal > 1 ? 's' : ''}`;
+      badgeHighlight = hasFilter && filteredTotal > 0;
     }
 
     let html = `
@@ -700,26 +718,20 @@ class MediathequeCard extends HTMLElement {
       `;
     }
 
-    // Filtre : si badges est configuré, ne montrer que les livres correspondants
-    const hasFilter = !!this._config.badges;
-
     if (mode === 'due') {
-      // Mode "due" : liste plate des livres à rendre
-      const livres = attrs.livres || [];
-      const filtered = hasFilter ? livres.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : livres;
+      const livres = filteredData.livres;
 
-      if (filtered.length === 0) {
+      if (livres.length === 0) {
         html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
       }
 
-      const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+      const sorted = [...livres].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
       for (const loan of sorted) {
         html += this._renderBookRow(loan, enabledBadges, true);
       }
     } else {
-      // Mode "all" : emprunts groupés par membre
-      const membres = attrs.membres || {};
-      const compte = attrs.compte || '';
+      const membres = filteredData.membres;
+      const compte = filteredData.compte;
 
       const sortedMembers = Object.keys(membres).sort((a, b) => {
         if (a === compte) return -1;
@@ -727,23 +739,21 @@ class MediathequeCard extends HTMLElement {
         return a.localeCompare(b);
       });
 
-      let totalVisible = 0;
+      if (sortedMembers.length === 0) {
+        html += `<div class="empty-state">Aucun emprunt en cours</div>`;
+      }
 
       for (const member of sortedMembers) {
-        const loans = membres[member] || [];
-        const filtered = hasFilter ? loans.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : loans;
-        if (filtered.length === 0) continue;
-
-        totalVisible += filtered.length;
+        const loans = membres[member];
         const icon = member === compte ? '👤' : '👦';
-        const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+        const sorted = [...loans].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
 
         html += `
           <div class="member-section">
             <div class="member-header">
               <span class="member-icon">${icon}</span>
               <span class="member-name">${escapeHtml(member)}</span>
-              <span class="member-count">${filtered.length}</span>
+              <span class="member-count">${loans.length}</span>
             </div>
         `;
 
@@ -752,10 +762,6 @@ class MediathequeCard extends HTMLElement {
         }
 
         html += `</div>`;
-      }
-
-      if (totalVisible === 0) {
-        html += `<div class="empty-state">Aucun emprunt en cours</div>`;
       }
     }
 
