@@ -459,14 +459,16 @@ class MediathequeCard extends HTMLElement {
     return (this._config && this._config.mode === 'due') ? 3 : 4;
   }
 
+  _matchesBadgeFilter(loan, enabledBadges) {
+    const chip = getDaysChip(loan.days_left);
+    return enabledBadges.includes(chip.type);
+  }
+
   _renderBookRow(loan, enabledBadges, showEmprunteur) {
     const chip = getDaysChip(loan.days_left);
     const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
-    let badgesHtml = '';
-    if (enabledBadges.includes(chip.type)) {
-      badgesHtml += `<span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>`;
-    }
+    let badgesHtml = `<span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>`;
     if (loan.extended && enabledBadges.includes('not_extendable')) {
       badgesHtml += `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>`;
     }
@@ -698,15 +700,19 @@ class MediathequeCard extends HTMLElement {
       `;
     }
 
+    // Filtre : si badges est configuré, ne montrer que les livres correspondants
+    const hasFilter = !!this._config.badges;
+
     if (mode === 'due') {
       // Mode "due" : liste plate des livres à rendre
       const livres = attrs.livres || [];
+      const filtered = hasFilter ? livres.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : livres;
 
-      if (livres.length === 0) {
+      if (filtered.length === 0) {
         html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
       }
 
-      const sorted = [...livres].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+      const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
       for (const loan of sorted) {
         html += this._renderBookRow(loan, enabledBadges, true);
       }
@@ -721,21 +727,23 @@ class MediathequeCard extends HTMLElement {
         return a.localeCompare(b);
       });
 
-      if (sortedMembers.length === 0) {
-        html += `<div class="empty-state">Aucun emprunt en cours</div>`;
-      }
+      let totalVisible = 0;
 
       for (const member of sortedMembers) {
         const loans = membres[member] || [];
+        const filtered = hasFilter ? loans.filter(l => this._matchesBadgeFilter(l, enabledBadges)) : loans;
+        if (filtered.length === 0) continue;
+
+        totalVisible += filtered.length;
         const icon = member === compte ? '👤' : '👦';
-        const sorted = [...loans].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+        const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
 
         html += `
           <div class="member-section">
             <div class="member-header">
               <span class="member-icon">${icon}</span>
               <span class="member-name">${escapeHtml(member)}</span>
-              <span class="member-count">${loans.length}</span>
+              <span class="member-count">${filtered.length}</span>
             </div>
         `;
 
@@ -744,6 +752,10 @@ class MediathequeCard extends HTMLElement {
         }
 
         html += `</div>`;
+      }
+
+      if (totalVisible === 0) {
+        html += `<div class="empty-state">Aucun emprunt en cours</div>`;
       }
     }
 

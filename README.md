@@ -85,7 +85,7 @@ title: A rendre cette semaine  # optionnel
 
 #### Badges
 
-Par défaut, tous les badges sont affichés. Vous pouvez choisir lesquels afficher via l'option `badges` :
+Par défaut, tous les livres sont affichés avec leurs badges. Si vous configurez `badges`, seuls les livres correspondant aux types listés seront affichés :
 
 | Badge            | Description                                    | Apparence       |
 |------------------|------------------------------------------------|-----------------|
@@ -96,7 +96,7 @@ Par défaut, tous les badges sont affichés. Vous pouvez choisir lesquels affich
 | `ok`             | Plus de 7 jours restants                       | Vert            |
 | `not_extendable` | Emprunt déjà prolongé (non prolongeable)       | Violet          |
 
-Exemple pour n'afficher que les badges d'alerte :
+Exemple pour n'afficher que les livres urgents :
 
 ```yaml
 type: custom:mediatheque-card
