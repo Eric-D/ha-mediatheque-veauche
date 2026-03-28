@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.11.2';
+const MEDIATHEQUE_CARD_VERSION = '1.11.3';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -418,19 +418,14 @@ class MediathequeCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.entity) {
+    if (!config || !config.entity) {
       _mcLog('warn', 'card', 'Config sans entity — attente…');
-      this._config = config;
+      this._config = config || {};
       return;
     }
-    if (config.badges !== undefined) {
-      if (!Array.isArray(config.badges)) {
-        throw new Error("'badges' doit être une liste");
-      }
-      const invalid = config.badges.filter(b => !ALL_BADGES.includes(b));
-      if (invalid.length > 0) {
-        throw new Error(`Badges invalides : ${invalid.join(', ')}. Valeurs possibles : ${ALL_BADGES.join(', ')}`);
-      }
+    // Filtrer les badges invalides silencieusement
+    if (config.badges !== undefined && Array.isArray(config.badges)) {
+      config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
     _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
