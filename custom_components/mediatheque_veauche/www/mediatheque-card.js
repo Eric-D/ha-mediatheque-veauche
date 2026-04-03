@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.4';
+const MEDIATHEQUE_CARD_VERSION = '1.15.5';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -434,24 +434,12 @@ class MediathequeCard extends HTMLElement {
     this._config = config;
   }
 
-  static getStubConfig(hass) {
-    if (!hass || !hass.states) return { entity: '', mode: 'all' };
-    const entity = Object.keys(hass.states).find(
-      e => e.startsWith('sensor.mediatheque_')
-    );
-    return { entity: entity || '', mode: 'all' };
+  static getStubConfig() {
+    return { entity: '', mode: 'all' };
   }
 
   getCardSize() {
     return (this._config && this._config.mode === 'due') ? 3 : 4;
-  }
-
-  getGridOptions() {
-    return {
-      columns: 12,
-      min_columns: 6,
-      rows: (this._config && this._config.mode === 'due') ? 3 : 4,
-      min_rows: 2,
     };
   }
 
@@ -807,7 +795,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'mediatheque-card',
   name: 'Médiathèque de Veauche',
-  preview: true,
+  preview: false,
   description: 'Affiche les emprunts de la médiathèque de Veauche',
 });
 
