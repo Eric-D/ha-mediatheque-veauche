@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.13.1';
+const MEDIATHEQUE_CARD_VERSION = '1.13.2';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -410,67 +410,16 @@ class MediathequeCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
   }
 
-  // Callback pour context-request : reçoit (states, unsubscribe)
-  _updateStates = (states, unsubscribe) => {
-    this._unsubStates = unsubscribe;
-    this._contextReady = true;
-    if (!this._config || !this._config.entity) return;
-
-    const entityId = this._config.entity;
-    const newState = states[entityId];
-    if (this._lastState === newState) return;
-    this._lastState = newState;
-
-    if (isModalOpen(this.shadowRoot)) return;
-    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-    try {
-      this._render();
-    } catch (e) {
-      _mcLog('error', 'card', 'Render error: %o', e);
-    }
-  }
-
-  connectedCallback() {
-    this._retryCount = 0;
-    this._lastHtml = false;
-    this._lastState = undefined;
-    this._contextReady = false;
-
-    // Différer le dispatch après que le DOM se soit stabilisé
-    // pour éviter les AbortError pendant les transitions de vue
-    queueMicrotask(() => {
-      if (!this.isConnected) return;
-      const event = new CustomEvent('context-request', {
-        bubbles: true,
-        composed: true,
-        cancelable: true,
-      });
-      event.context = 'states';
-      event.subscribe = true;
-      event.callback = this._updateStates;
-      this.dispatchEvent(event);
-    });
-  }
-
   disconnectedCallback() {
-    if (this._unsubStates) {
-      this._unsubStates();
-      this._unsubStates = undefined;
-    }
     if (this._retryTimer) {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
-    this._retryCount = 0;
-    this._lastState = undefined;
-    this._contextReady = false;
   }
 
-  // Fallback : si context-request n'a pas encore répondu, set hass déclenche le rendu
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (this._contextReady) return;
     if (!this._config || !this._config.entity) return;
 
     const entityId = this._config.entity;
