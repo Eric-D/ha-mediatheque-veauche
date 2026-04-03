@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.7';
+const MEDIATHEQUE_CARD_VERSION = '1.15.8';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -422,16 +422,13 @@ class MediathequeCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config || !config.entity) {
-      _mcLog('warn', 'card', 'Config sans entity — attente…');
-      this._config = config || {};
-      return;
-    }
+    config = config || {};
     if (Array.isArray(config.badges)) {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
-    _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
+    // Afficher un loader immédiatement pour que la carte ne soit jamais vide
+    this.innerHTML = '<ha-card><div style="padding:24px 16px;text-align:center;color:var(--secondary-text-color)">Chargement...</div></ha-card>';
   }
 
   static getStubConfig() {
