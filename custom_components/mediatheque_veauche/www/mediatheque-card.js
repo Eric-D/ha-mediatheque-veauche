@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.11.5';
+const MEDIATHEQUE_CARD_VERSION = '1.12.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -405,12 +405,54 @@ function isModalOpen(root) {
 }
 
 class MediathequeCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this._connected = false;
+    this._unsubStates = null;
+  }
+
+  connectedCallback() {
+    this._connected = true;
+    this._subscribeStatesContext();
+    if (this._hass && this._config) {
+      try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render error: %o', e); }
+    }
+  }
+
+  disconnectedCallback() {
+    this._connected = false;
+    if (this._unsubStates) {
+      this._unsubStates();
+      this._unsubStates = null;
+    }
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
+  }
+
+  _subscribeStatesContext() {
+    const event = new CustomEvent('context-request', {
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    event.context = 'states';
+    event.subscribe = true;
+    event.callback = (result) => {
+      if (result && result.unsubscribe) {
+        this._unsubStates = result.unsubscribe;
+      }
+    };
+    this.dispatchEvent(event);
+  }
+
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (!this._config) return;
+    if (!this._config || !this._connected) return;
 
-    // Ne re-render que si l'état de l'entité observée a changé
     const entityId = this._config.entity;
     if (entityId && oldHass) {
       const oldState = oldHass.states[entityId];
@@ -418,7 +460,7 @@ class MediathequeCard extends HTMLElement {
       if (oldState === newState) return;
     }
 
-    if (isModalOpen(this)) return;
+    if (isModalOpen(this.shadowRoot)) return;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
     try {
       this._render();
@@ -429,11 +471,8 @@ class MediathequeCard extends HTMLElement {
 
   setConfig(config) {
     if (!config || !config.entity) {
-      _mcLog('warn', 'card', 'Config sans entity — attente…');
-      this._config = config || {};
-      return;
+      throw new Error("Configuration invalide : l'option 'entity' est requise.");
     }
-    // Filtrer les badges invalides silencieusement
     if (config.badges !== undefined && Array.isArray(config.badges)) {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
@@ -441,8 +480,73 @@ class MediathequeCard extends HTMLElement {
     this._config = config;
   }
 
-  static getStubConfig() {
-    return { entity: '', mode: 'all' };
+  static getStubConfig(hass) {
+    const entity = Object.keys(hass.states).find(
+      e => e.startsWith('sensor.mediatheque_')
+    );
+    return { entity: entity || 'sensor.mediatheque_veauche', mode: 'all' };
+  }
+
+  static getConfigForm() {
+    return {
+      schema: [
+        { name: 'entity', required: true, selector: { entity: { domain: 'sensor' } } },
+        { name: 'title', selector: { text: {} } },
+        {
+          name: 'mode',
+          selector: {
+            select: {
+              options: [
+                { value: 'all', label: 'Tous les emprunts' },
+                { value: 'due', label: 'A rendre cette semaine' },
+              ],
+            },
+          },
+        },
+        { name: 'total_entity', selector: { entity: { domain: 'sensor' } } },
+        { name: 'card_id', selector: { text: {} } },
+        {
+          name: 'badges',
+          selector: {
+            select: {
+              multiple: true,
+              options: [
+                { value: 'overdue', label: 'En retard' },
+                { value: 'today', label: "Aujourd'hui" },
+                { value: 'urgent', label: 'Urgent (< 3j)' },
+                { value: 'soon', label: 'Bientôt (< 7j)' },
+                { value: 'ok', label: 'OK' },
+                { value: 'not_extendable', label: 'Non prolongeable' },
+              ],
+            },
+          },
+        },
+      ],
+      computeLabel(schema) {
+        const labels = {
+          entity: 'Entité',
+          title: 'Titre de la carte',
+          mode: 'Mode d\'affichage',
+          total_entity: 'Entité total (mode "due")',
+          card_id: 'N° de carte bibliothèque',
+          badges: 'Filtrer par statut',
+        };
+        return labels[schema.name] || schema.name;
+      },
+    };
+  }
+
+  getCardSize() {
+    return (this._config && this._config.mode === 'due') ? 3 : 4;
+  }
+
+  getGridOptions() {
+    return {
+      columns: 12,
+      min_columns: 6,
+      rows: (this._config && this._config.mode === 'due') ? 3 : 4,
+      min_rows: 2,
+    };
   }
 
   _scheduleRetry() {
@@ -457,10 +561,6 @@ class MediathequeCard extends HTMLElement {
         try { this._render(); } catch (e) { _mcLog('error', 'card', 'Retry render error: %o', e); }
       }
     }, delay);
-  }
-
-  getCardSize() {
-    return (this._config && this._config.mode === 'due') ? 3 : 4;
   }
 
   _matchesBadgeFilter(loan, enabledBadges) {
@@ -503,19 +603,19 @@ class MediathequeCard extends HTMLElement {
   }
 
   _render() {
+    const root = this.shadowRoot;
     const entityId = this._config.entity;
     const mode = this._config.mode || 'all';
     const state = this._hass.states[entityId];
     const title = escapeHtml(this._config.title || (mode === 'due' ? 'A rendre cette semaine' : 'Médiathèque de Veauche'));
     const enabledBadges = this._config.badges || ALL_BADGES;
 
-    // No state or unavailable: keep last render if available, schedule retry
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
       _mcLog('warn', 'card', '%s — %s %s', entityId, reason, this._lastHtml ? '(keeping last render)' : '(showing loader)');
       this._scheduleRetry();
       if (this._lastHtml) return;
-      this.innerHTML = `
+      root.innerHTML = `
         <ha-card>
           <div class="mediatheque-header">
             <span class="mediatheque-title">${title}</span>
@@ -538,14 +638,11 @@ class MediathequeCard extends HTMLElement {
       return;
     }
 
-    // State OK — reset retry counter
     this._retryCount = 0;
     const attrs = state.attributes || {};
 
-    // Filtre : si badges est configuré, ne montrer que les livres correspondants
     const hasFilter = !!this._config.badges;
 
-    // Determine card_id and filtered counts based on mode
     let cardId, badgeText, badgeHighlight, filteredData;
 
     if (mode === 'due') {
@@ -568,7 +665,6 @@ class MediathequeCard extends HTMLElement {
     } else {
       const membres = attrs.membres || {};
       const compte = attrs.compte || '';
-      // Filtrer par membre
       const filteredMembres = {};
       let filteredTotal = 0;
       for (const [member, loans] of Object.entries(membres)) {
@@ -772,14 +868,13 @@ class MediathequeCard extends HTMLElement {
 
     html += getModalHtml('mc-modal');
     html += `</ha-card>`;
-    this.innerHTML = html;
+    root.innerHTML = html;
     this._lastHtml = true;
 
-    bindModal(this, 'mc-modal', this._hass);
+    bindModal(root, 'mc-modal', this._hass);
 
-    // Barcode modal
-    const bcTrigger = this.querySelector('#mc-barcode-trigger');
-    const bcOverlay = this.querySelector('#mc-barcode-modal');
+    const bcTrigger = root.querySelector('#mc-barcode-trigger');
+    const bcOverlay = root.querySelector('#mc-barcode-modal');
     if (bcTrigger && bcOverlay) {
       const bcClose = bcOverlay.querySelector('.mc-barcode-close');
       bcTrigger.addEventListener('click', (e) => {
@@ -802,6 +897,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'mediatheque-card',
   name: 'Médiathèque de Veauche',
+  preview: true,
   description: 'Affiche les emprunts de la médiathèque de Veauche',
 });
 
