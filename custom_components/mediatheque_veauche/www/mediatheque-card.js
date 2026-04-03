@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.12.1';
+const MEDIATHEQUE_CARD_VERSION = '1.12.2';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -417,7 +417,7 @@ class MediathequeCard extends HTMLElement {
     this._retryCount = 0;
     this._lastHtml = false;
     this._subscribeStatesContext();
-    if (this._hass && this._config) {
+    if (this._hass && this._config && this._config.entity) {
       try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render error: %o', e); }
     }
   }
@@ -459,10 +459,10 @@ class MediathequeCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (!this._config || !this._connected) return;
+    if (!this._config || !this._connected || !this._config.entity) return;
 
     const entityId = this._config.entity;
-    if (entityId && oldHass) {
+    if (oldHass) {
       const oldState = oldHass.states[entityId];
       const newState = hass.states[entityId];
       if (oldState === newState) return;
@@ -478,14 +478,16 @@ class MediathequeCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config || !config.entity) {
-      throw new Error("Configuration invalide : l'option 'entity' est requise.");
+    if (!config) {
+      throw new Error("Configuration invalide : configuration manquante.");
     }
     if (config.badges !== undefined && Array.isArray(config.badges)) {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
-    _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
+    if (config.entity) {
+      _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
+    }
   }
 
   static getStubConfig(hass) {
