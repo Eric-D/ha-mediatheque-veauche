@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.5';
+const MEDIATHEQUE_CARD_VERSION = '1.15.6';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -724,7 +724,7 @@ class MediathequeCard extends HTMLElement {
         html += `<div class="empty-state">Aucun livre à rendre cette semaine</div>`;
       }
 
-      const sorted = [...livres].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+      const sorted = [...livres].sort((a, b) => (a.days_left != null ? a.days_left : 0) - (b.days_left != null ? b.days_left : 0));
       for (const loan of sorted) {
         html += this._renderBookRow(loan, enabledBadges, true);
       }
@@ -745,7 +745,7 @@ class MediathequeCard extends HTMLElement {
       for (const member of sortedMembers) {
         const loans = membres[member];
         const icon = member === compte ? '👤' : '👦';
-        const sorted = [...loans].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+        const sorted = [...loans].sort((a, b) => (a.days_left != null ? a.days_left : 0) - (b.days_left != null ? b.days_left : 0));
 
         html += `
           <div class="member-section">
