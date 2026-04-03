@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
+CARD_VERSION = "1.16.1"
 CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
 
 SERVICE_EXTEND_LOAN = "extend_loan"
@@ -51,7 +52,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             [StaticPathConfig(CARD_URL, str(card_path), True)]
         )
 
-    add_extra_js_url(hass, CARD_URL)
+    add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
     hass.data[DOMAIN + "_static_registered"] = True
 
     return True
