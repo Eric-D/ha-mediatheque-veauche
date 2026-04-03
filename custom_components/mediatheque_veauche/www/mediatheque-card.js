@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.1';
+const MEDIATHEQUE_CARD_VERSION = '1.15.2';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -418,7 +418,7 @@ class MediathequeCard extends HTMLElement {
     const entityState = hass.states[this._config.entity];
     if (entityState && this._entityState === entityState) return;
     this._entityState = entityState;
-    this._render();
+    try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render: %o', e); }
   }
 
   setConfig(config) {
@@ -435,10 +435,11 @@ class MediathequeCard extends HTMLElement {
   }
 
   static getStubConfig(hass) {
+    if (!hass || !hass.states) return { entity: '', mode: 'all' };
     const entity = Object.keys(hass.states).find(
       e => e.startsWith('sensor.mediatheque_')
     );
-    return { entity: entity || 'sensor.mediatheque_veauche', mode: 'all' };
+    return { entity: entity || '', mode: 'all' };
   }
 
   static getConfigForm() {
