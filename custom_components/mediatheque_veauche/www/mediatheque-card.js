@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.8';
+const MEDIATHEQUE_CARD_VERSION = '1.16.0-debug';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -405,7 +405,21 @@ function isModalOpen(root) {
 }
 
 class MediathequeCard extends HTMLElement {
+  constructor() {
+    super();
+    this._dbg = [];
+    this._dbgMax = 30;
+  }
+
+  _log(msg) {
+    var ts = new Date().toLocaleTimeString('fr-FR', { hour12: false });
+    this._dbg.push(ts + ' ' + msg);
+    if (this._dbg.length > this._dbgMax) this._dbg.shift();
+    _mcLog('info', 'card', msg);
+  }
+
   disconnectedCallback() {
+    this._log('disconnectedCallback');
     if (this._retryTimer) {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
@@ -414,11 +428,14 @@ class MediathequeCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._config || !this._config.entity || !hass || !hass.states) return;
-    const entityState = hass.states[this._config.entity];
-    if (this._entityState === entityState) return;
+    if (!this._config) { this._log('set hass: skip (no config)'); return; }
+    if (!this._config.entity) { this._log('set hass: skip (no entity)'); return; }
+    if (!hass || !hass.states) { this._log('set hass: skip (no hass.states)'); return; }
+    var entityState = hass.states[this._config.entity];
+    if (this._entityState === entityState) return; // pas de log, trop fréquent
     this._entityState = entityState;
-    try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render: %o', e); }
+    this._log('set hass: render (state=' + (entityState ? entityState.state : 'undefined') + ')');
+    try { this._render(); } catch (e) { this._log('set hass: RENDER ERROR: ' + e.message); }
   }
 
   setConfig(config) {
@@ -427,7 +444,7 @@ class MediathequeCard extends HTMLElement {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
     this._config = config;
-    // Afficher un loader immédiatement pour que la carte ne soit jamais vide
+    this._log('setConfig: entity=' + (config.entity || 'NONE'));
     this.innerHTML = '<ha-card><div style="padding:24px 16px;text-align:center;color:var(--secondary-text-color)">Chargement...</div></ha-card>';
   }
 
@@ -780,6 +797,19 @@ class MediathequeCard extends HTMLElement {
         if (e.target === bcOverlay) bcOverlay.classList.remove('active');
       });
       if (bcClose) bcClose.addEventListener('click', () => bcOverlay.classList.remove('active'));
+    }
+
+    // Debug tracker visible sur la carte
+    var dbgEl = root.querySelector('#mc-debug');
+    if (!dbgEl) {
+      dbgEl = document.createElement('pre');
+      dbgEl.id = 'mc-debug';
+      dbgEl.style.cssText = 'font-size:9px;color:#888;background:#111;padding:8px;margin:0;max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;border-top:1px solid #333';
+      var haCard = root.querySelector('ha-card');
+      if (haCard) haCard.appendChild(dbgEl);
+    }
+    if (dbgEl) {
+      dbgEl.textContent = 'v' + MEDIATHEQUE_CARD_VERSION + ' | ' + this._dbg.join('\n');
     }
   }
 }
