@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.14.2';
+const MEDIATHEQUE_CARD_VERSION = '1.15.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -405,11 +405,6 @@ function isModalOpen(root) {
 }
 
 class MediathequeCard extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: 'open' });
-  }
-
   disconnectedCallback() {
     if (this._retryTimer) {
       clearTimeout(this._retryTimer);
@@ -418,19 +413,36 @@ class MediathequeCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
     if (!this._config || !this._config.entity) return;
-    const state = hass.states[this._config.entity];
-    if (state === this._lastState) return;
-    this._lastState = state;
-    if (!isModalOpen(this.shadowRoot)) this._render();
+
+    const entityId = this._config.entity;
+    if (oldHass) {
+      const oldState = oldHass.states[entityId];
+      const newState = hass.states[entityId];
+      if (oldState === newState) return;
+    }
+
+    if (isModalOpen(this)) return;
+    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    try {
+      this._render();
+    } catch (e) {
+      _mcLog('error', 'card', 'Render error: %o', e);
+    }
   }
 
   setConfig(config) {
-    config = config || {};
+    if (!config || !config.entity) {
+      _mcLog('warn', 'card', 'Config sans entity — attente…');
+      this._config = config || {};
+      return;
+    }
     if (Array.isArray(config.badges)) {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
+    _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
     this._config = config;
   }
 
@@ -557,7 +569,7 @@ class MediathequeCard extends HTMLElement {
   }
 
   _render() {
-    const root = this.shadowRoot;
+    const root = this;
     const entityId = this._config.entity;
     const mode = this._config.mode || 'all';
     const state = this._hass.states[entityId];
