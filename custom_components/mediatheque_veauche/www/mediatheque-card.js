@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.12.0';
+const MEDIATHEQUE_CARD_VERSION = '1.12.1';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -414,6 +414,8 @@ class MediathequeCard extends HTMLElement {
 
   connectedCallback() {
     this._connected = true;
+    this._retryCount = 0;
+    this._lastHtml = false;
     this._subscribeStatesContext();
     if (this._hass && this._config) {
       try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render error: %o', e); }
@@ -430,9 +432,15 @@ class MediathequeCard extends HTMLElement {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
+    this._retryCount = 0;
   }
 
   _subscribeStatesContext() {
+    // Nettoyer l'ancienne souscription avant d'en créer une nouvelle
+    if (this._unsubStates) {
+      this._unsubStates();
+      this._unsubStates = null;
+    }
     const event = new CustomEvent('context-request', {
       bubbles: true,
       composed: true,
