@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.6';
+const MEDIATHEQUE_CARD_VERSION = '1.15.7';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -414,7 +414,7 @@ class MediathequeCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._config || !this._config.entity) return;
+    if (!this._config || !this._config.entity || !hass || !hass.states) return;
     const entityState = hass.states[this._config.entity];
     if (this._entityState === entityState) return;
     this._entityState = entityState;
