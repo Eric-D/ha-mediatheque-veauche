@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.12.3';
+const MEDIATHEQUE_CARD_VERSION = '1.13.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -408,38 +408,17 @@ class MediathequeCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._connected = false;
   }
 
-  connectedCallback() {
-    this._connected = true;
-    this._retryCount = 0;
-    this._lastHtml = false;
-    if (this._hass && this._config && this._config.entity) {
-      try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render error: %o', e); }
-    }
-  }
-
-  disconnectedCallback() {
-    this._connected = false;
-    if (this._retryTimer) {
-      clearTimeout(this._retryTimer);
-      this._retryTimer = null;
-    }
-    this._retryCount = 0;
-  }
-
-  set hass(hass) {
-    const oldHass = this._hass;
-    this._hass = hass;
-    if (!this._config || !this._connected || !this._config.entity) return;
+  // Callback pour context-request : reçoit (states, unsubscribe)
+  _updateStates = (states, unsubscribe) => {
+    this._unsubStates = unsubscribe;
+    if (!this._config || !this._config.entity) return;
 
     const entityId = this._config.entity;
-    if (oldHass) {
-      const oldState = oldHass.states[entityId];
-      const newState = hass.states[entityId];
-      if (oldState === newState) return;
-    }
+    const newState = states[entityId];
+    if (this._lastState === newState) return;
+    this._lastState = newState;
 
     if (isModalOpen(this.shadowRoot)) return;
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
@@ -448,6 +427,40 @@ class MediathequeCard extends HTMLElement {
     } catch (e) {
       _mcLog('error', 'card', 'Render error: %o', e);
     }
+  }
+
+  connectedCallback() {
+    this._retryCount = 0;
+    this._lastHtml = false;
+    this._lastState = undefined;
+
+    const event = new CustomEvent('context-request', {
+      bubbles: true,
+      composed: true,
+      cancelable: true,
+    });
+    event.context = 'states';
+    event.subscribe = true;
+    event.callback = this._updateStates;
+    this.dispatchEvent(event);
+  }
+
+  disconnectedCallback() {
+    if (this._unsubStates) {
+      this._unsubStates();
+      this._unsubStates = undefined;
+    }
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
+    this._retryCount = 0;
+    this._lastState = undefined;
+  }
+
+  // set hass conservé uniquement pour les appels de service (extend_loan)
+  set hass(hass) {
+    this._hass = hass;
   }
 
   setConfig(config) {
