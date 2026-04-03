@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.15.3';
+const MEDIATHEQUE_CARD_VERSION = '1.15.4';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -440,55 +440,6 @@ class MediathequeCard extends HTMLElement {
       e => e.startsWith('sensor.mediatheque_')
     );
     return { entity: entity || '', mode: 'all' };
-  }
-
-  static getConfigForm() {
-    return {
-      schema: [
-        { name: 'entity', required: true, selector: { entity: { domain: 'sensor' } } },
-        { name: 'title', selector: { text: {} } },
-        {
-          name: 'mode',
-          selector: {
-            select: {
-              options: [
-                { value: 'all', label: 'Tous les emprunts' },
-                { value: 'due', label: 'A rendre cette semaine' },
-              ],
-            },
-          },
-        },
-        { name: 'total_entity', selector: { entity: { domain: 'sensor' } } },
-        { name: 'card_id', selector: { text: {} } },
-        {
-          name: 'badges',
-          selector: {
-            select: {
-              multiple: true,
-              options: [
-                { value: 'overdue', label: 'En retard' },
-                { value: 'today', label: "Aujourd'hui" },
-                { value: 'urgent', label: 'Urgent (< 3j)' },
-                { value: 'soon', label: 'Bientôt (< 7j)' },
-                { value: 'ok', label: 'OK' },
-                { value: 'not_extendable', label: 'Non prolongeable' },
-              ],
-            },
-          },
-        },
-      ],
-      computeLabel(schema) {
-        const labels = {
-          entity: 'Entité',
-          title: 'Titre de la carte',
-          mode: 'Mode d\'affichage',
-          total_entity: 'Entité total (mode "due")',
-          card_id: 'N° de carte bibliothèque',
-          badges: 'Filtrer par statut',
-        };
-        return labels[schema.name] || schema.name;
-      },
-    };
   }
 
   getCardSize() {
