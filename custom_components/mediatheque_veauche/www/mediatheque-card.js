@@ -415,10 +415,10 @@ class MediathequeCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (!this._config || !this._config.entity) return;
+    if (!this._config) return;
 
     const entityId = this._config.entity;
-    if (oldHass) {
+    if (entityId && oldHass) {
       const oldState = oldHass.states[entityId];
       const newState = hass.states[entityId];
       if (oldState === newState) return;
