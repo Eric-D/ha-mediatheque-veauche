@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.13.2';
+const MEDIATHEQUE_CARD_VERSION = '1.14.0';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -418,24 +418,12 @@ class MediathequeCard extends HTMLElement {
   }
 
   set hass(hass) {
-    const oldHass = this._hass;
     this._hass = hass;
     if (!this._config || !this._config.entity) return;
-
-    const entityId = this._config.entity;
-    if (oldHass) {
-      const oldState = oldHass.states[entityId];
-      const newState = hass.states[entityId];
-      if (oldState === newState) return;
-    }
-
-    if (isModalOpen(this.shadowRoot)) return;
-    if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-    try {
-      this._render();
-    } catch (e) {
-      _mcLog('error', 'card', 'Render error: %o', e);
-    }
+    const state = hass.states[this._config.entity];
+    if (state === this._lastState) return;
+    this._lastState = state;
+    if (!isModalOpen(this.shadowRoot)) this._render();
   }
 
   setConfig(config) {
