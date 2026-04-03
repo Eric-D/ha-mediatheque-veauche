@@ -6,7 +6,7 @@
 if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
 window.MEDIATHEQUE_CARD_LOADED = true;
 
-const MEDIATHEQUE_CARD_VERSION = '1.14.0';
+const MEDIATHEQUE_CARD_VERSION = '1.14.1';
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -419,6 +419,10 @@ class MediathequeCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    if (this._error) {
+      this.shadowRoot.innerHTML = `<ha-card><div style="padding:16px;color:#b71c1c">${this._error}</div></ha-card>`;
+      return;
+    }
     if (!this._config || !this._config.entity) return;
     const state = hass.states[this._config.entity];
     if (state === this._lastState) return;
@@ -427,16 +431,16 @@ class MediathequeCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config) {
-      throw new Error("Configuration invalide : configuration manquante.");
+    if (!config || !config.entity) {
+      this._error = "Configuration requise : veuillez définir 'entity'.";
+      this._config = config || {};
+      return;
     }
-    if (config.badges !== undefined && Array.isArray(config.badges)) {
+    this._error = null;
+    if (Array.isArray(config.badges)) {
       config = { ...config, badges: config.badges.filter(b => ALL_BADGES.includes(b)) };
     }
     this._config = config;
-    if (config.entity) {
-      _mcLog('info', 'card', 'Config OK, entity=%s, version=%s', config.entity, MEDIATHEQUE_CARD_VERSION);
-    }
   }
 
   static getStubConfig(hass) {
