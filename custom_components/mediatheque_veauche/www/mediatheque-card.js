@@ -3,7 +3,7 @@
  * Affiche les emprunts de la médiathèque par membre de la famille.
  */
 
-const MEDIATHEQUE_CARD_VERSION = '2.1.0';
+const MEDIATHEQUE_CARD_VERSION = '2.2.0';
 
 if (customElements.get('mediatheque-card')) {
   console.info('%c MEDIATHEQUE-CARD %c already registered, skipping ', 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; font-weight: bold;');
@@ -492,7 +492,9 @@ class MediathequeCard extends HTMLElement {
     const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
     let badgesHtml = `<span class="badge-days" style="color:${chip.color};background:${chip.bg}">${chip.text}</span>`;
-    if (loan.extended) {
+    if (loan.extended && loan.days_left < 0) {
+      badgesHtml += `<span class="badge-days" style="color:#b71c1c;background:#ffcdd2">✗ Hors délai</span>`;
+    } else if (loan.extended) {
       badgesHtml += `<span class="badge-days" style="color:#6a1b9a;background:#e1bee7">✗ Non prolongeable</span>`;
     }
 
