@@ -215,13 +215,17 @@ class MediathequeVeaucheClient:
         extend_cell = cells[idx] if idx < len(cells) else None
         can_extend = False
         extended = False
+        extend_disabled = False
         extend_url = None
         if extend_cell:
             extend_link = extend_cell.find("a")
             if extend_link:
                 classes = extend_link.get("class", [])
-                if "disabled" in classes:
+                link_text = extend_link.get_text(strip=True).lower()
+                if "disabled" in classes or link_text == "atteinte":
                     extended = True
+                elif "btn-warning" in classes or link_text == "désactivé":
+                    extend_disabled = True
                 else:
                     can_extend = True
                     href = extend_link.get("href", "")
@@ -243,6 +247,7 @@ class MediathequeVeaucheClient:
             "days_left": days_left,
             "can_extend": can_extend,
             "extended": extended,
+            "extend_disabled": extend_disabled,
             "extend_url": extend_url,
             "cover_url": details.get("cover_url"),
             "isbn": details.get("isbn"),
