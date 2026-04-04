@@ -3,10 +3,11 @@
  * Affiche les emprunts de la médiathèque par membre de la famille.
  */
 
-if (window.MEDIATHEQUE_CARD_LOADED) { /* already loaded */ } else {
-window.MEDIATHEQUE_CARD_LOADED = true;
+const MEDIATHEQUE_CARD_VERSION = '2.1.0';
 
-const MEDIATHEQUE_CARD_VERSION = '2.0.0';
+if (customElements.get('mediatheque-card')) {
+  console.info('%c MEDIATHEQUE-CARD %c already registered, skipping ', 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; font-weight: bold;');
+} else {
 console.info(`%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `, 'color: white; background: #2e7d32; font-weight: bold;', 'color: #2e7d32; background: #c8e6c9; font-weight: bold;');
 
 function _mcLog(level, card, msg, ...args) {
@@ -407,17 +408,41 @@ function isModalOpen(root) {
 }
 
 class MediathequeCard extends HTMLElement {
-  // Pattern mini-graph-card : set hass stocke, compare ref, rend
+  connectedCallback() {
+    this._initialize();
+  }
+
+  disconnectedCallback() {
+    this._cleanup();
+  }
+
+  _initialize() {
+    if (this._initialized) return;
+    this._initialized = true;
+    // Re-render si on a déjà config + hass (réattachement WebView Android)
+    if (this._hass && this._config && this._config.entity) {
+      try { this._render(); } catch (e) { _mcLog('error', 'card', 'Init render: %o', e); }
+    }
+  }
+
+  _cleanup() {
+    this._initialized = false;
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!this._config || !this._config.entity || !hass || !hass.states) return;
-    const entityState = hass.states[this._config.entity];
+    var entityState = hass.states[this._config.entity];
     if (this._entityState === entityState) return;
     this._entityState = entityState;
     try { this._render(); } catch (e) { _mcLog('error', 'card', 'Render: %o', e); }
   }
 
-  // Pas de throw — accepte tout, attend que l'entity arrive
+  // Idempotent — peut être appelé plusieurs fois par HA
   setConfig(config) {
     config = config || {};
     if (Array.isArray(config.badges)) {
@@ -428,14 +453,6 @@ class MediathequeCard extends HTMLElement {
 
   static getStubConfig() {
     return { entity: '', mode: 'all' };
-  }
-
-  // Cleanup timer si la carte est retirée du DOM
-  disconnectedCallback() {
-    if (this._retryTimer) {
-      clearTimeout(this._retryTimer);
-      this._retryTimer = null;
-    }
   }
 
   getCardSize() {
@@ -799,9 +816,7 @@ class MediathequeCard extends HTMLElement {
   }
 }
 
-if (!customElements.get('mediatheque-card')) {
-  customElements.define('mediatheque-card', MediathequeCard);
-}
+customElements.define('mediatheque-card', MediathequeCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
@@ -810,4 +825,4 @@ window.customCards.push({
   description: 'Affiche les emprunts de la médiathèque de Veauche',
 });
 
-} // end MEDIATHEQUE_CARD_LOADED guard
+} // end customElements.get guard

@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
-CARD_VERSION = "2.0.0"
+CARD_VERSION = "2.1.0"
 CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
 
 SERVICE_EXTEND_LOAN = "extend_loan"
