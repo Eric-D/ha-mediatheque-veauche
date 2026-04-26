@@ -14,3 +14,6 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# frontend (carte Lovelace)
+frontend/node_modules/

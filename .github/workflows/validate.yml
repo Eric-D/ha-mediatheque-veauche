@@ -20,3 +20,36 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+
+  validate-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Vérifier que le bundle commité est à jour
+        run: |
+          if ! git diff --quiet custom_components/mediatheque_veauche/www/mediatheque-card.js; then
+            echo "::error::Le bundle commité diffère du build. Exécute 'cd frontend && npm run build' avant de pousser."
+            git --no-pager diff --stat custom_components/mediatheque_veauche/www/mediatheque-card.js
+            exit 1
+          fi
