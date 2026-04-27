@@ -461,10 +461,17 @@ export class MediathequeCard extends LitElement {
 declare global {
   interface Window {
     customCards?: Array<{ type: string; name: string; description?: string }>;
+    loadCardHelpers?: () => Promise<unknown>;
   }
 }
 
 logBanner();
+
+// Force HA à charger ses définitions de custom elements (ha-card, ha-form…).
+// Sans cet appel, sur un cold load (cache vide), notre carte est enregistrée
+// avant que HA ait défini ha-card / ha-form, ce qui produit un rendu cassé.
+// Au refresh suivant tout est en cache → fonctionne. Cet appel évite le KO initial.
+void window.loadCardHelpers?.();
 
 window.customCards = window.customCards ?? [];
 window.customCards.push({
