@@ -1,5 +1,5 @@
 import { LitElement, html, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 import { ALL_BADGES, type MediathequeConfig, type HassLike } from './types.js';
 
 const EDITOR_BADGE_LABELS: Record<string, string> = {
@@ -24,7 +24,6 @@ interface ValueChangedEvent extends CustomEvent {
   detail: { value: MediathequeConfig };
 }
 
-@customElement('mediatheque-card-editor')
 export class MediathequeCardEditor extends LitElement {
   @property({ attribute: false }) public hass?: HassLike;
 
@@ -106,4 +105,8 @@ export class MediathequeCardEditor extends LitElement {
       })
     );
   }
+}
+
+if (!customElements.get('mediatheque-card-editor')) {
+  customElements.define('mediatheque-card-editor', MediathequeCardEditor);
 }

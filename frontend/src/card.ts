@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 import { classMap } from 'lit/directives/class-map.js';
 
@@ -33,7 +33,6 @@ interface GridOptions {
   min_rows: number;
 }
 
-@customElement('mediatheque-card')
 export class MediathequeCard extends LitElement {
   static override styles = [cardStyles, modalStyles];
 
@@ -112,6 +111,19 @@ export class MediathequeCard extends LitElement {
     super.disconnectedCallback();
     this._retry.cancel();
   }
+
+  // Attend que HA ait défini ha-card avant le 1er render. Sans ça, sur cold load
+  // (notamment WebView Android lent), notre <ha-card> est rendu comme élément
+  // inconnu et le upgrade ultérieur peut produire un layout cassé.
+  protected override async scheduleUpdate(): Promise<void> {
+    if (!MediathequeCard._haReady) {
+      MediathequeCard._haReady = customElements.whenDefined('ha-card');
+    }
+    await MediathequeCard._haReady;
+    super.scheduleUpdate();
+  }
+
+  private static _haReady?: Promise<unknown>;
 
   protected override updated(): void {
     if (this._hasRendered) {
@@ -470,12 +482,20 @@ logBanner();
 // Force HA à charger ses définitions de custom elements (ha-card, ha-form…).
 // Sans cet appel, sur un cold load (cache vide), notre carte est enregistrée
 // avant que HA ait défini ha-card / ha-form, ce qui produit un rendu cassé.
-// Au refresh suivant tout est en cache → fonctionne. Cet appel évite le KO initial.
 void window.loadCardHelpers?.();
 
+// Garde idempotente : sur WebView Android, le script peut être ré-évalué
+// (sleep/wake, retour du background). Sans cette garde, customElements.define
+// throw "already defined" → KO total.
+if (!customElements.get('mediatheque-card')) {
+  customElements.define('mediatheque-card', MediathequeCard);
+}
+
 window.customCards = window.customCards ?? [];
-window.customCards.push({
-  type: 'mediatheque-card',
-  name: 'Médiathèque de Veauche',
-  description: 'Affiche les emprunts de la médiathèque de Veauche',
-});
+if (!window.customCards.some((c) => c.type === 'mediatheque-card')) {
+  window.customCards.push({
+    type: 'mediatheque-card',
+    name: 'Médiathèque de Veauche',
+    description: 'Affiche les emprunts de la médiathèque de Veauche',
+  });
+}
