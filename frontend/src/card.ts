@@ -5,8 +5,11 @@ import { classMap } from 'lit/directives/class-map.js';
 
 import {
   ALL_BADGES,
+  ALL_MODES,
+  MODE_ALIASES,
   type AllAttributes,
   type BadgeType,
+  type CardMode,
   type DueAttributes,
   type HassEntityState,
   type HassLike,
@@ -42,10 +45,7 @@ export class MediathequeCard extends LitElement {
     const next = value.states[this._config.entity];
     if (this._entityState === next) return;
     this._entityState = next;
-    if (
-      (this._config.mode === 'due' || this._config.mode === 'grid') &&
-      this._config.total_entity
-    ) {
+    if (this._config.mode === 'covers' && this._config.total_entity) {
       this._totalEntityState = value.states[this._config.total_entity];
     }
     this.requestUpdate();
@@ -72,8 +72,15 @@ export class MediathequeCard extends LitElement {
     if (!config.entity || typeof config.entity !== 'string') {
       throw new Error('Vous devez définir une entité (entity)');
     }
-    if (config.mode !== undefined && !['all', 'due', 'grid'].includes(config.mode)) {
-      throw new Error("Le champ 'mode' doit valoir 'all', 'due' ou 'grid'");
+    let normalizedMode: CardMode | undefined;
+    if (config.mode !== undefined) {
+      const aliased = MODE_ALIASES[config.mode] ?? config.mode;
+      if (!ALL_MODES.includes(aliased as CardMode)) {
+        throw new Error(
+          `Le champ 'mode' doit valoir ${ALL_MODES.map((m) => `'${m}'`).join(' ou ')}`
+        );
+      }
+      normalizedMode = aliased as CardMode;
     }
     if (config.badges !== undefined && !Array.isArray(config.badges)) {
       throw new Error("Le champ 'badges' doit être une liste");
@@ -86,11 +93,15 @@ export class MediathequeCard extends LitElement {
         );
       }
     }
-    this._config = { ...config, badges: config.badges?.slice() };
+    this._config = {
+      ...config,
+      mode: normalizedMode,
+      badges: config.badges?.slice(),
+    };
   }
 
   public static getStubConfig(): MediathequeConfig {
-    return { entity: '', mode: 'all' };
+    return { entity: '', mode: 'list' };
   }
 
   public static getConfigElement(): HTMLElement {
@@ -98,18 +109,15 @@ export class MediathequeCard extends LitElement {
   }
 
   public getCardSize(): number {
-    const m = this._config?.mode;
-    if (m === 'grid') return 2;
-    if (m === 'due') return 3;
-    return 4;
+    return this._config?.mode === 'covers' ? 2 : 4;
   }
 
   public getGridOptions(): GridOptions {
-    const m = this._config?.mode;
+    const isCovers = this._config?.mode === 'covers';
     return {
       columns: 12,
-      min_columns: m === 'grid' ? 4 : 6,
-      rows: m === 'grid' ? 2 : m === 'due' ? 3 : 4,
+      min_columns: isCovers ? 4 : 6,
+      rows: isCovers ? 2 : 4,
       min_rows: 2,
     };
   }
@@ -136,14 +144,10 @@ export class MediathequeCard extends LitElement {
     // Toujours rendre un <ha-card> visible — jamais d'empty html.
     // HA a besoin de voir un rendu pour ne pas afficher 'Erreur de configuration',
     // et l'utilisateur a un retour visuel (loader) pendant la phase d'init.
-    const mode = this._config?.mode ?? 'all';
+    const mode: CardMode = this._config?.mode ?? 'list';
     const title =
       this._config?.title ??
-      (mode === 'due'
-        ? 'A rendre cette semaine'
-        : mode === 'grid'
-          ? 'A rendre bientôt'
-          : 'Médiathèque de Veauche');
+      (mode === 'covers' ? 'A rendre bientôt' : 'Médiathèque de Veauche');
 
     if (!this._config) {
       return this._renderLoader(title, 'En attente de configuration…');
@@ -176,11 +180,9 @@ export class MediathequeCard extends LitElement {
     const hasFilter = !!this._config.badges;
 
     const tpl =
-      mode === 'due'
-        ? this._renderDue(state, enabledBadges, hasFilter, title)
-        : mode === 'grid'
-          ? this._renderGrid(state, enabledBadges, hasFilter, title)
-          : this._renderAll(state, enabledBadges, hasFilter, title);
+      mode === 'covers'
+        ? this._renderCovers(state, enabledBadges, hasFilter, title)
+        : this._renderList(state, enabledBadges, hasFilter, title);
 
     this._lastTemplate = tpl;
     this._hasRendered = true;
@@ -209,43 +211,7 @@ export class MediathequeCard extends LitElement {
     return enabled.includes(getDaysChip(loan.days_left).type);
   }
 
-  private _renderDue(
-    state: HassEntityState,
-    enabledBadges: BadgeType[],
-    hasFilter: boolean,
-    title: string
-  ): TemplateResult {
-    const attrs = (state.attributes ?? {}) as DueAttributes;
-    const livres = attrs.livres ?? [];
-    const filtered = hasFilter
-      ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
-      : livres;
-
-    const totalState =
-      this._totalEntityState ??
-      (this._hass?.states[this._config!.entity.replace('_due_week', '_total')]);
-    const totalCount = totalState ? parseInt(totalState.state, 10) || 0 : null;
-    const cardId =
-      ((totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
-        this._config?.card_id ??
-        '') || '';
-    const badgeText = totalCount !== null ? `${filtered.length} / ${totalCount}` : `${filtered.length}`;
-    const highlight = filtered.length > 0;
-
-    const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
-
-    return html`
-      <ha-card>
-        ${this._renderHeader(title, badgeText, highlight, cardId)}
-        ${sorted.length === 0
-          ? html`<div class="empty-state">Aucun livre à rendre cette semaine</div>`
-          : sorted.map((loan) => this._renderBookRow(loan, true))}
-        ${this._renderModals(cardId)}
-      </ha-card>
-    `;
-  }
-
-  private _renderGrid(
+  private _renderCovers(
     state: HassEntityState,
     enabledBadges: BadgeType[],
     hasFilter: boolean,
@@ -327,7 +293,7 @@ export class MediathequeCard extends LitElement {
     `;
   }
 
-  private _renderAll(
+  private _renderList(
     state: HassEntityState,
     enabledBadges: BadgeType[],
     hasFilter: boolean,

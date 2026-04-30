@@ -55,7 +55,7 @@ Type : Module JavaScript
 |-----------|--------|-----------------|---------------------------------------------------------------|
 | `entity`  | string | **obligatoire** | Entité sensor à utiliser                                      |
 | `title`   | string | *(auto)*        | Titre personnalisé de la carte                                |
-| `mode`    | string | `all`           | `all` (par membre), `due` (liste à rendre), `grid` (grille de couvertures) |
+| `mode`    | string | `list`          | `list` (groupée par membre) ou `covers` (grille de couvertures à rendre)   |
 | `badges`  | list   | *(tous)*        | Filtre les livres par type de statut                          |
 | `card_id` | string | *(auto)*        | Identifiant carte pour le code-barres                         |
 
@@ -96,17 +96,19 @@ badges:
 
 Le compteur dans l'en-tête reflète le nombre de livres filtrés.
 
-#### Mode grille (couvertures uniquement)
+#### Mode `covers` (grille de couvertures)
 
-Variante visuelle du mode `due` : affiche une grille de miniatures de couvertures avec un badge jours-restants superposé en haut à droite. Idéal pour identifier *en un coup d'œil* ce qui est à rendre. Tap sur une couverture → modal de détail (titre, ISBN, prolonger).
+Affiche une grille de miniatures avec un badge jours-restants superposé en haut à droite. Idéal pour identifier *en un coup d'œil* les livres à rendre. Tap sur une couverture → modal de détail (titre, ISBN, prolonger).
 
 ```yaml
 type: custom:mediatheque-card
 entity: sensor.emprunts_mediatheque_due_week
-mode: grid
+mode: covers
 ```
 
 Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents).
+
+> **Compat** : les anciens noms `all` et `grid` sont normalisés silencieusement vers `list` et `covers`. Le mode `due` (cassé) a été retiré en v3.2.0.
 
 ## Structure des sensors
 

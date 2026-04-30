@@ -15,7 +15,16 @@ export const ALL_BADGES: readonly BadgeType[] = [
   'not_extendable',
 ] as const;
 
-export type CardMode = 'all' | 'due' | 'grid';
+export type CardMode = 'list' | 'covers';
+
+// Aliases acceptés pour rétro-compat (anciens dashboards) — normalisés vers
+// les modes canoniques dans setConfig.
+export const MODE_ALIASES: Record<string, CardMode> = {
+  all: 'list',
+  grid: 'covers',
+};
+
+export const ALL_MODES: readonly CardMode[] = ['list', 'covers'] as const;
 
 export interface MediathequeConfig {
   type?: string;
