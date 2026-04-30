@@ -126,13 +126,23 @@ export class MediathequeCard extends LitElement {
   }
 
   protected override render(): TemplateResult {
-    if (!this._config || !this._hass) return html``;
+    // Toujours rendre un <ha-card> visible — jamais d'empty html.
+    // HA a besoin de voir un rendu pour ne pas afficher 'Erreur de configuration',
+    // et l'utilisateur a un retour visuel (loader) pendant la phase d'init.
+    const mode = this._config?.mode ?? 'all';
+    const title =
+      this._config?.title ??
+      (mode === 'due' ? 'A rendre cette semaine' : 'Médiathèque de Veauche');
+
+    if (!this._config) {
+      return this._renderLoader(title, 'En attente de configuration…');
+    }
+    if (!this._hass) {
+      return this._renderLoader(title, 'Connexion à Home Assistant…');
+    }
 
     const entityId = this._config.entity;
-    const mode = this._config.mode ?? 'all';
     const state = this._hass.states[entityId];
-    const title =
-      this._config.title ?? (mode === 'due' ? 'A rendre cette semaine' : 'Médiathèque de Veauche');
 
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
@@ -146,7 +156,7 @@ export class MediathequeCard extends LitElement {
       );
       this._retry.schedule();
       if (this._hasRendered) return this._lastTemplate ?? this._renderLoader(title);
-      this._lastTemplate = this._renderLoader(title);
+      this._lastTemplate = this._renderLoader(title, 'En attente des données…');
       return this._lastTemplate;
     }
 
@@ -166,7 +176,7 @@ export class MediathequeCard extends LitElement {
 
   private _lastTemplate?: TemplateResult;
 
-  private _renderLoader(title: string): TemplateResult {
+  private _renderLoader(title: string, message = 'Chargement…'): TemplateResult {
     return html`
       <ha-card>
         <div class="mediatheque-header">
@@ -175,7 +185,7 @@ export class MediathequeCard extends LitElement {
         <div style="padding:32px 16px;text-align:center">
           <div class="mediatheque-loader"></div>
           <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">
-            Chargement...
+            ${message}
           </div>
         </div>
       </ha-card>

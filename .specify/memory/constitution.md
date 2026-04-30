@@ -165,6 +165,18 @@ frontend/src/
   re-render pour ne pas casser une interaction utilisateur.
 - Toute logique de re-render doit aussi survivre à un détachement /
   réattachement (cas du `<ha-card>` qui passe entre dashboards).
+- **`render()` ne doit JAMAIS retourner `html\`\`` vide.** HA interprète un
+  rendu vide comme une erreur de configuration et affiche le placeholder
+  "Erreur de configuration" à la place de la carte. Toujours retourner un
+  `<ha-card>` avec un loader / message d'attente quand `_config` ou `_hass`
+  ne sont pas encore disponibles.
+- Pas d'override `async` de `scheduleUpdate()` / `performUpdate()` Lit. Le
+  cycle de vie Lit doit rester synchrone vis-à-vis de HA — un retard du 1er
+  render au-delà du timeout interne de Lovelace fait afficher "Erreur de
+  configuration".
+- Définition de l'élément via `customElements.define` **gardée** par
+  `if (!customElements.get(...))` — le décorateur `@customElement` lance une
+  exception à la moindre ré-évaluation du script (cycle sleep/wake WebView).
 
 ### P7 — Events custom (coordination inter-cards)
 
