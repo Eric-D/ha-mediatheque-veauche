@@ -217,8 +217,13 @@ export class MediathequeCard extends LitElement {
     hasFilter: boolean,
     title: string
   ): TemplateResult {
-    const attrs = (state.attributes ?? {}) as DueAttributes;
-    const livres = attrs.livres ?? [];
+    const attrs = (state.attributes ?? {}) as DueAttributes & AllAttributes;
+    // Accepter les deux formes d'entité : 'livres' (sensors filtrés due_week / overdue)
+    // ou 'membres' (sensor principal) qu'on aplatit. La vue couvertures doit
+    // marcher quel que soit le sensor pointé.
+    const livres: Loan[] =
+      attrs.livres ??
+      Object.values(attrs.membres ?? {}).flat();
     const filtered = hasFilter
       ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
       : livres;
@@ -227,7 +232,8 @@ export class MediathequeCard extends LitElement {
       this._totalEntityState ??
       (this._hass?.states[this._config!.entity.replace('_due_week', '_total')]);
     const cardId =
-      ((totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
+      (attrs.card_id ??
+        (totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
         this._config?.card_id ??
         '') || '';
     const badgeText = `${filtered.length}`;
