@@ -112,19 +112,6 @@ export class MediathequeCard extends LitElement {
     this._retry.cancel();
   }
 
-  // Attend que HA ait défini ha-card avant le 1er render. Sans ça, sur cold load
-  // (notamment WebView Android lent), notre <ha-card> est rendu comme élément
-  // inconnu et le upgrade ultérieur peut produire un layout cassé.
-  protected override async scheduleUpdate(): Promise<void> {
-    if (!MediathequeCard._haReady) {
-      MediathequeCard._haReady = customElements.whenDefined('ha-card');
-    }
-    await MediathequeCard._haReady;
-    super.scheduleUpdate();
-  }
-
-  private static _haReady?: Promise<unknown>;
-
   protected override updated(): void {
     if (this._hasRendered) {
       this.dispatchEvent(
