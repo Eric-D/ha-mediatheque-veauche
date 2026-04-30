@@ -123,6 +123,63 @@ export const cardStyles = css`
     text-align: center;
     color: var(--secondary-text-color);
   }
+  .book-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px 16px;
+    justify-content: flex-start;
+  }
+  .book-tile {
+    position: relative;
+    width: 80px;
+    height: 120px;
+    padding: 0;
+    border: none;
+    background: var(--secondary-background-color, #f0f0f0);
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    transition: transform 0.12s ease;
+  }
+  .book-tile:active {
+    transform: scale(0.96);
+  }
+  .book-tile-cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .book-tile-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 22px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.72em;
+    font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  .book-tile-corner {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 0.7em;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
   .mediatheque-loader {
     width: 36px;
     height: 36px;

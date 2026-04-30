@@ -15,7 +15,7 @@ export const ALL_BADGES: readonly BadgeType[] = [
   'not_extendable',
 ] as const;
 
-export type CardMode = 'all' | 'due';
+export type CardMode = 'all' | 'due' | 'grid';
 
 export interface MediathequeConfig {
   type?: string;

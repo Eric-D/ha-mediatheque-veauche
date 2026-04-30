@@ -55,7 +55,8 @@ export class MediathequeCardEditor extends LitElement {
             mode: 'dropdown',
             options: [
               { value: 'all', label: 'Tous les emprunts (par membre)' },
-              { value: 'due', label: 'À rendre cette semaine' },
+              { value: 'due', label: 'À rendre cette semaine (liste)' },
+              { value: 'grid', label: 'À rendre — grille de couvertures' },
             ],
           },
         },

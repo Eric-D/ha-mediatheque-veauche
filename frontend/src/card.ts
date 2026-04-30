@@ -42,7 +42,10 @@ export class MediathequeCard extends LitElement {
     const next = value.states[this._config.entity];
     if (this._entityState === next) return;
     this._entityState = next;
-    if (this._config.mode === 'due' && this._config.total_entity) {
+    if (
+      (this._config.mode === 'due' || this._config.mode === 'grid') &&
+      this._config.total_entity
+    ) {
       this._totalEntityState = value.states[this._config.total_entity];
     }
     this.requestUpdate();
@@ -69,8 +72,8 @@ export class MediathequeCard extends LitElement {
     if (!config.entity || typeof config.entity !== 'string') {
       throw new Error('Vous devez définir une entité (entity)');
     }
-    if (config.mode !== undefined && !['all', 'due'].includes(config.mode)) {
-      throw new Error("Le champ 'mode' doit valoir 'all' ou 'due'");
+    if (config.mode !== undefined && !['all', 'due', 'grid'].includes(config.mode)) {
+      throw new Error("Le champ 'mode' doit valoir 'all', 'due' ou 'grid'");
     }
     if (config.badges !== undefined && !Array.isArray(config.badges)) {
       throw new Error("Le champ 'badges' doit être une liste");
@@ -95,14 +98,18 @@ export class MediathequeCard extends LitElement {
   }
 
   public getCardSize(): number {
-    return this._config?.mode === 'due' ? 3 : 4;
+    const m = this._config?.mode;
+    if (m === 'grid') return 2;
+    if (m === 'due') return 3;
+    return 4;
   }
 
   public getGridOptions(): GridOptions {
+    const m = this._config?.mode;
     return {
       columns: 12,
-      min_columns: 6,
-      rows: this._config?.mode === 'due' ? 3 : 4,
+      min_columns: m === 'grid' ? 4 : 6,
+      rows: m === 'grid' ? 2 : m === 'due' ? 3 : 4,
       min_rows: 2,
     };
   }
@@ -132,7 +139,11 @@ export class MediathequeCard extends LitElement {
     const mode = this._config?.mode ?? 'all';
     const title =
       this._config?.title ??
-      (mode === 'due' ? 'A rendre cette semaine' : 'Médiathèque de Veauche');
+      (mode === 'due'
+        ? 'A rendre cette semaine'
+        : mode === 'grid'
+          ? 'A rendre bientôt'
+          : 'Médiathèque de Veauche');
 
     if (!this._config) {
       return this._renderLoader(title, 'En attente de configuration…');
@@ -167,7 +178,9 @@ export class MediathequeCard extends LitElement {
     const tpl =
       mode === 'due'
         ? this._renderDue(state, enabledBadges, hasFilter, title)
-        : this._renderAll(state, enabledBadges, hasFilter, title);
+        : mode === 'grid'
+          ? this._renderGrid(state, enabledBadges, hasFilter, title)
+          : this._renderAll(state, enabledBadges, hasFilter, title);
 
     this._lastTemplate = tpl;
     this._hasRendered = true;
@@ -229,6 +242,88 @@ export class MediathequeCard extends LitElement {
           : sorted.map((loan) => this._renderBookRow(loan, true))}
         ${this._renderModals(cardId)}
       </ha-card>
+    `;
+  }
+
+  private _renderGrid(
+    state: HassEntityState,
+    enabledBadges: BadgeType[],
+    hasFilter: boolean,
+    title: string
+  ): TemplateResult {
+    const attrs = (state.attributes ?? {}) as DueAttributes;
+    const livres = attrs.livres ?? [];
+    const filtered = hasFilter
+      ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
+      : livres;
+
+    const totalState =
+      this._totalEntityState ??
+      (this._hass?.states[this._config!.entity.replace('_due_week', '_total')]);
+    const cardId =
+      ((totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
+        this._config?.card_id ??
+        '') || '';
+    const badgeText = `${filtered.length}`;
+    const highlight = filtered.length > 0;
+
+    const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+
+    return html`
+      <ha-card>
+        ${this._renderHeader(title, badgeText, highlight, cardId)}
+        ${sorted.length === 0
+          ? html`<div class="empty-state">Aucun livre à rendre</div>`
+          : html`<div class="book-grid">
+              ${sorted.map((loan) => this._renderTile(loan))}
+            </div>`}
+        ${this._renderModals(cardId)}
+      </ha-card>
+    `;
+  }
+
+  private _renderTile(loan: Loan): TemplateResult {
+    const chip = getDaysChip(loan.days_left);
+    const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
+    const tileLabel =
+      loan.days_left < 0
+        ? `${Math.abs(loan.days_left)}j`
+        : loan.days_left === 0
+          ? '!'
+          : `${loan.days_left}j`;
+
+    return html`
+      <button
+        class="book-tile"
+        title="${loan.titre}${loan.emprunteur ? ` — ${loan.emprunteur}` : ''}"
+        @click=${(): void => this._openDetail(loan)}
+      >
+        <img
+          class="book-tile-cover"
+          src=${coverSrc}
+          alt=""
+          loading="lazy"
+          @error=${(e: Event): void => {
+            (e.target as HTMLImageElement).src = PLACEHOLDER_SVG;
+          }}
+        />
+        <span
+          class="book-tile-badge"
+          style="color:${chip.color};background:${chip.bg}"
+          aria-label=${chip.text}
+          >${tileLabel}</span
+        >
+        ${loan.extend_disabled || loan.extended
+          ? html`<span
+              class="book-tile-corner"
+              style=${loan.extend_disabled
+                ? 'background:#b71c1c'
+                : 'background:#6a1b9a'}
+              title=${loan.extend_disabled ? 'Désactivé' : 'Non prolongeable'}
+              >✗</span
+            >`
+          : nothing}
+      </button>
     `;
   }
 

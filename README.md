@@ -51,12 +51,13 @@ Type : Module JavaScript
 
 #### Options de configuration
 
-| Option    | Type   | Défaut          | Description                                  |
-|-----------|--------|-----------------|----------------------------------------------|
-| `entity`  | string | **obligatoire** | Entité sensor à utiliser                     |
-| `title`   | string | *(auto)*        | Titre personnalisé de la carte               |
-| `badges`  | list   | *(tous)*        | Filtre les livres par type de statut         |
-| `card_id` | string | *(auto)*        | Identifiant carte pour le code-barres        |
+| Option    | Type   | Défaut          | Description                                                   |
+|-----------|--------|-----------------|---------------------------------------------------------------|
+| `entity`  | string | **obligatoire** | Entité sensor à utiliser                                      |
+| `title`   | string | *(auto)*        | Titre personnalisé de la carte                                |
+| `mode`    | string | `all`           | `all` (par membre), `due` (liste à rendre), `grid` (grille de couvertures) |
+| `badges`  | list   | *(tous)*        | Filtre les livres par type de statut                          |
+| `card_id` | string | *(auto)*        | Identifiant carte pour le code-barres                         |
 
 #### Utilisation de base
 
@@ -94,6 +95,18 @@ badges:
 ```
 
 Le compteur dans l'en-tête reflète le nombre de livres filtrés.
+
+#### Mode grille (couvertures uniquement)
+
+Variante visuelle du mode `due` : affiche une grille de miniatures de couvertures avec un badge jours-restants superposé en haut à droite. Idéal pour identifier *en un coup d'œil* ce qui est à rendre. Tap sur une couverture → modal de détail (titre, ISBN, prolonger).
+
+```yaml
+type: custom:mediatheque-card
+entity: sensor.emprunts_mediatheque_due_week
+mode: grid
+```
+
+Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents).
 
 ## Structure des sensors
 
