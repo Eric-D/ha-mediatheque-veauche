@@ -1,4 +1,4 @@
-import { LitElement, html, nothing, type TemplateResult } from 'lit';
+import { LitElement, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 import { classMap } from 'lit/directives/class-map.js';
@@ -154,8 +154,18 @@ export class MediathequeCard extends LitElement {
     }
   }
 
-  protected override shouldUpdate(): boolean {
-    // Si une modale est ouverte, ne pas re-render pour ne pas casser l'interaction.
+  protected override shouldUpdate(changedProperties: PropertyValues): boolean {
+    // Si l'état des modales a changé (ouverture/fermeture), toujours re-render —
+    // sinon le modal ne s'afficherait jamais quand on clique pour l'ouvrir.
+    if (
+      changedProperties.has('_detailLoan') ||
+      changedProperties.has('_confirmExtend') ||
+      changedProperties.has('_barcodeOpen')
+    ) {
+      return true;
+    }
+    // Sinon : si une modale est déjà ouverte (et que le changement vient de hass
+    // ou autre), on bloque pour ne pas casser l'interaction utilisateur.
     return !(this._detailLoan || this._confirmExtend || this._barcodeOpen) || !this._hasRendered;
   }
 
