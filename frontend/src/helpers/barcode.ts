@@ -1,59 +1,104 @@
-// Encodeur Code 128B → SVG. Utilisé pour le code-barres de la carte de membre.
-const CODE128B_PATTERNS: readonly string[] = [
-  '11011001100', '11001101100', '11001100110', '10010011000', '10010001100',
-  '10001001100', '10011001000', '10011000100', '10001100100', '11001001000',
-  '11001000100', '11000100100', '10110011100', '10011011100', '10011001110',
-  '10111001100', '10011101100', '10011100110', '11001110010', '11001011100',
-  '11001001110', '11011100100', '11001110100', '11100101100', '11100100110',
-  '10110001100', '10001101100', '10001100110', '11010001100', '11000101100',
-  '11000100110', '10110001000', '10001101000', '10001100010', '11010001000',
-  '11000101000', '11000100010', '10110111000', '10110001110', '10001101110',
-  '10111011000', '10111000110', '10001110110', '11101011000', '11101000110',
-  '11100010110', '11011101000', '11011100010', '11000111010', '11101101000',
-  '11101100010', '11100011010', '11101111010', '11001000010', '11110001010',
-  '10100110000', '10100001100', '10010110000', '10010000110', '10000101100',
-  '10000100110', '10110010000', '10110000100', '10011010000', '10011000010',
-  '10000110100', '10000110010', '11000010010', '11001010000', '11110111010',
-  '11000010100', '10001111010', '10100111100', '10010111100', '10010011110',
-  '10111100100', '10011110100', '10011110010', '11110100100', '11110010100',
-  '11110010010', '11011011110', '11011110110', '11110110110', '10101111000',
-  '10100011110', '10001011110', '10111101000', '10111100010', '11110101000',
-  '11110100010', '10111011110', '10111101110', '11101011110', '11110101110',
-  '11010000100', '11010010000', '11010011100', '1100011101011',
-];
+// Encodeur Code 39 → SVG. Utilisé pour le code-barres de la carte de membre.
+// Code 39 est le standard utilisé par les médiathèques (notamment MicroBib) :
+// auto-checking, plus tolérant aux scanners bas de gamme que Code 128.
+//
+// Chaque caractère = 9 éléments alternés (5 barres + 4 espaces) dont 3 sont
+// larges. Ratio largeur/étroit = 3:1. Gap inter-caractère = 1 espace étroit.
+// '1' dans le pattern = élément large, '0' = étroit.
+// Position dans la chaîne : 0,2,4,6,8 = barres ; 1,3,5,7 = espaces.
 
-export function generateCode128Svg(text: string, height = 80): string {
+const CODE39_PATTERNS: Record<string, string> = {
+  '0': '000110100',
+  '1': '100100001',
+  '2': '001100001',
+  '3': '101100000',
+  '4': '000110001',
+  '5': '100110000',
+  '6': '001110000',
+  '7': '000100101',
+  '8': '100100100',
+  '9': '001100100',
+  A: '100001001',
+  B: '001001001',
+  C: '101001000',
+  D: '000011001',
+  E: '100011000',
+  F: '001011000',
+  G: '000001101',
+  H: '100001100',
+  I: '001001100',
+  J: '000011100',
+  K: '100000011',
+  L: '001000011',
+  M: '101000010',
+  N: '000010011',
+  O: '100010010',
+  P: '001010010',
+  Q: '000000111',
+  R: '100000110',
+  S: '001000110',
+  T: '000010110',
+  U: '110000001',
+  V: '011000001',
+  W: '111000000',
+  X: '010010001',
+  Y: '110010000',
+  Z: '011010000',
+  '-': '010000101',
+  '.': '110000100',
+  ' ': '011000100',
+  $: '010101000',
+  '/': '010100010',
+  '+': '010001010',
+  '%': '000101010',
+  '*': '010010100',
+};
+
+const NARROW = 2;
+const WIDE = NARROW * 3;
+const QUIET_ZONE = NARROW * 10;
+
+export function generateCode39Svg(text: string, height = 80): string {
   if (!text) return '';
-  const codes: number[] = [];
-  const startCode = 104;
-  codes.push(startCode);
-  let checksum = startCode;
-  for (let i = 0; i < text.length; i++) {
-    const charCode = text.charCodeAt(i);
-    if (charCode < 32 || charCode > 126) continue;
-    const code = charCode - 32;
-    codes.push(code);
-    checksum += code * (i + 1);
-  }
-  codes.push(checksum % 103);
-  codes.push(106);
+  const upper = text.toUpperCase();
 
-  let binary = '';
-  for (const c of codes) {
-    if (c >= 0 && c < CODE128B_PATTERNS.length) {
-      binary += CODE128B_PATTERNS[c];
+  // Filtre les caractères supportés (le * est réservé au start/stop).
+  const chars = ['*'];
+  for (const c of upper) {
+    if (c !== '*' && CODE39_PATTERNS[c]) chars.push(c);
+  }
+  chars.push('*');
+
+  if (chars.length <= 2) return '';
+
+  type Element = { width: number; isBar: boolean };
+  const elements: Element[] = [];
+
+  for (let i = 0; i < chars.length; i++) {
+    const pattern = CODE39_PATTERNS[chars[i]];
+    if (!pattern) continue;
+    for (let j = 0; j < 9; j++) {
+      elements.push({
+        width: pattern[j] === '1' ? WIDE : NARROW,
+        isBar: j % 2 === 0,
+      });
+    }
+    // Gap inter-caractère (espace étroit) sauf après le dernier.
+    if (i < chars.length - 1) {
+      elements.push({ width: NARROW, isBar: false });
     }
   }
 
-  if (!binary) return '';
+  const barsWidth = elements.reduce((sum, e) => sum + e.width, 0);
+  const totalWidth = barsWidth + QUIET_ZONE * 2;
 
-  const barWidth = 2;
-  const width = binary.length * barWidth;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`;
-  for (let k = 0; k < binary.length; k++) {
-    if (binary[k] === '1') {
-      svg += `<rect x="${k * barWidth}" y="0" width="${barWidth}" height="${height}" fill="#000"/>`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${height}" width="${totalWidth}" height="${height}"><rect x="0" y="0" width="${totalWidth}" height="${height}" fill="#fff"/>`;
+  let x = QUIET_ZONE;
+  for (const e of elements) {
+    if (e.isBar) {
+      svg += `<rect x="${x}" y="0" width="${e.width}" height="${height}" fill="#000"/>`;
     }
+    x += e.width;
   }
   svg += '</svg>';
   return svg;

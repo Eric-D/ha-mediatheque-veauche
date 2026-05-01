@@ -18,7 +18,7 @@ import {
   type MembersMap,
 } from './types.js';
 import { getDaysChip } from './helpers/days-chip.js';
-import { generateCode128Svg } from './helpers/barcode.js';
+import { generateCode39Svg } from './helpers/barcode.js';
 import { RetryScheduler } from './helpers/retry.js';
 import { logBanner, mcLog } from './version.js';
 import { cardStyles } from './styles/card.js';
@@ -512,7 +512,7 @@ export class MediathequeCard extends LitElement {
   }
 
   private _renderBarcodeModal(cardId: string): TemplateResult {
-    const svg = generateCode128Svg(cardId);
+    const svg = generateCode39Svg(cardId);
     return html`
       <div class="mc-barcode-overlay active" @click=${this._onBarcodeOverlayClick}>
         <div class="mc-barcode-dialog">
