@@ -48,8 +48,12 @@ import { property, state } from 'lit/decorators.js';
 
 Méthodes obligatoires sur l'élément :
 
-- `setConfig(config)` — valide la config et **lève une exception** en cas de
-  config invalide. C'est le seul moyen pour l'éditeur HA de signaler l'erreur.
+- `setConfig(config)` — valide la config. **Seul `entity` est bloquant** et
+  doit lever une exception (l'éditeur HA en a besoin pour signaler l'erreur).
+  Tous les autres champs (mode, badges, etc.) sont tolérants : valeur invalide
+  → log console + fallback sur la valeur par défaut, jamais throw. Cette
+  règle évite qu'un dashboard se casse complètement à cause d'un alias de
+  mode oublié ou d'un badge renommé.
 - `set hass(hass)` — setter Lit avec déclenchement de re-render via
   `requestUpdate()` ou via `@property()` sur la propriété. Toujours inclure
   un *guard* d'égalité sur l'entité observée pour éviter le re-render à

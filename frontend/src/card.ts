@@ -66,37 +66,56 @@ export class MediathequeCard extends LitElement {
   private _hasRendered = false;
 
   public setConfig(config: MediathequeConfig): void {
+    // Seul 'entity' est bloquant — tout le reste est tolérant pour ne jamais
+    // casser un dashboard sur un champ optionnel mal renseigné. On log les
+    // anomalies dans la console pour que l'utilisateur puisse diagnostiquer.
     if (!config || typeof config !== 'object') {
       throw new Error('Configuration manquante ou invalide');
     }
     if (!config.entity || typeof config.entity !== 'string') {
       throw new Error('Vous devez définir une entité (entity)');
     }
+
     let normalizedMode: CardMode | undefined;
     if (config.mode !== undefined) {
       const aliased = MODE_ALIASES[config.mode] ?? config.mode;
-      if (!ALL_MODES.includes(aliased as CardMode)) {
-        throw new Error(
-          `Le champ 'mode' doit valoir ${ALL_MODES.map((m) => `'${m}'`).join(' ou ')}`
-        );
-      }
-      normalizedMode = aliased as CardMode;
-    }
-    if (config.badges !== undefined && !Array.isArray(config.badges)) {
-      throw new Error("Le champ 'badges' doit être une liste");
-    }
-    if (Array.isArray(config.badges)) {
-      const invalid = config.badges.filter((b) => !ALL_BADGES.includes(b as BadgeType));
-      if (invalid.length) {
-        throw new Error(
-          `Badges inconnus : ${invalid.join(', ')}. Valides : ${ALL_BADGES.join(', ')}`
+      if (ALL_MODES.includes(aliased as CardMode)) {
+        normalizedMode = aliased as CardMode;
+      } else {
+        mcLog(
+          'warn',
+          'card',
+          "Mode '%s' inconnu, fallback sur 'list'. Modes valides : %s",
+          config.mode,
+          ALL_MODES.join(', ')
         );
       }
     }
+
+    let normalizedBadges: BadgeType[] | undefined;
+    if (config.badges !== undefined) {
+      if (!Array.isArray(config.badges)) {
+        mcLog('warn', 'card', "'badges' doit être une liste, ignoré (reçu : %o)", config.badges);
+      } else {
+        const valid = config.badges.filter((b) => ALL_BADGES.includes(b as BadgeType));
+        const invalid = config.badges.filter((b) => !ALL_BADGES.includes(b as BadgeType));
+        if (invalid.length) {
+          mcLog(
+            'warn',
+            'card',
+            'Badges inconnus ignorés : %s. Valides : %s',
+            invalid.join(', '),
+            ALL_BADGES.join(', ')
+          );
+        }
+        normalizedBadges = valid as BadgeType[];
+      }
+    }
+
     this._config = {
       ...config,
       mode: normalizedMode,
-      badges: config.badges?.slice(),
+      badges: normalizedBadges,
     };
   }
 

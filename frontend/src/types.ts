@@ -18,10 +18,12 @@ export const ALL_BADGES: readonly BadgeType[] = [
 export type CardMode = 'list' | 'covers';
 
 // Aliases acceptés pour rétro-compat (anciens dashboards) — normalisés vers
-// les modes canoniques dans setConfig.
+// les modes canoniques dans setConfig. Important : ne JAMAIS retirer un alias,
+// sinon les vieilles cartes encore en YAML cassent avec 'Erreur de configuration'.
 export const MODE_ALIASES: Record<string, CardMode> = {
   all: 'list',
   grid: 'covers',
+  due: 'covers',
 };
 
 export const ALL_MODES: readonly CardMode[] = ['list', 'covers'] as const;
