@@ -147,8 +147,14 @@ export class MediathequeCard extends LitElement {
     // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
     // render. Si elle voit le shadow root vide, elle substitue par
     // 'Erreur de configuration' (substitution définitive pour la session).
+    // Try/catch obligatoire : sans ça, une exception remonterait synchroniquement
+    // au appendChild de HA, qui marquerait la carte comme cassée.
     if (!this._hasRendered) {
-      this.performUpdate();
+      try {
+        this.performUpdate();
+      } catch (e) {
+        mcLog('error', 'card', 'performUpdate sync au mount a échoué : %o', e);
+      }
     }
   }
 
@@ -181,6 +187,19 @@ export class MediathequeCard extends LitElement {
   }
 
   protected override render(): TemplateResult {
+    // Wrapper anti-throw : si _render() lève (donnée HA inattendue, sous-helper
+    // qui crash, etc.), Lit's update() throw, le shadow root reste vide, HA
+    // substitue par 'Erreur de configuration'. On garantit un <ha-card>
+    // visible quoi qu'il arrive.
+    try {
+      return this._render();
+    } catch (e) {
+      mcLog('error', 'card', 'render() a throw, fallback loader : %o', e);
+      return this._renderLoader('Médiathèque', 'Erreur — voir console');
+    }
+  }
+
+  private _render(): TemplateResult {
     // Toujours rendre un <ha-card> visible — jamais d'empty html.
     // HA a besoin de voir un rendu pour ne pas afficher 'Erreur de configuration',
     // et l'utilisateur a un retour visuel (loader) pendant la phase d'init.
