@@ -141,6 +141,17 @@ export class MediathequeCard extends LitElement {
     };
   }
 
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    // Force le premier render synchrone : HA peut checker la carte juste
+    // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
+    // render. Si elle voit le shadow root vide, elle substitue par
+    // 'Erreur de configuration' (substitution définitive pour la session).
+    if (!this._hasRendered) {
+      this.performUpdate();
+    }
+  }
+
   public override disconnectedCallback(): void {
     super.disconnectedCallback();
     this._retry.cancel();
