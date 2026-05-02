@@ -1,6 +1,6 @@
 {
   "name": "mediatheque-card-frontend",
-  "version": "3.2.4",
+  "version": "3.2.5",
   "description": "Lovelace card sources for ha-mediatheque-veauche",
   "private": true,
   "type": "module",
