@@ -16,9 +16,52 @@ const EDITOR_LABELS: Record<string, string> = {
   title: 'Titre personnalisé',
   mode: 'Mode',
   badges: 'Filtres par badge',
-  total_entity: 'Entité du total (mode "due")',
+  total_entity: 'Entité du total (mode "couvertures")',
   card_id: 'Identifiant carte',
 };
+
+// Constante de module : si l'identité du tableau change à chaque render,
+// ha-form se reconstruit entièrement et le champ en cours de saisie perd le
+// focus à chaque frappe.
+const EDITOR_SCHEMA = [
+  {
+    name: 'entity',
+    required: true,
+    selector: { entity: { domain: 'sensor', integration: 'mediatheque_veauche' } },
+  },
+  { name: 'title', selector: { text: {} } },
+  {
+    name: 'mode',
+    selector: {
+      select: {
+        mode: 'dropdown',
+        options: [
+          { value: 'list', label: 'Liste (groupée par membre)' },
+          { value: 'covers', label: 'Couvertures (grille à rendre)' },
+        ],
+      },
+    },
+  },
+  {
+    name: 'badges',
+    selector: {
+      select: {
+        multiple: true,
+        options: ALL_BADGES.map((b) => ({
+          value: b,
+          label: EDITOR_BADGE_LABELS[b] ?? b,
+        })),
+      },
+    },
+  },
+  {
+    name: 'total_entity',
+    selector: { entity: { domain: 'sensor', integration: 'mediatheque_veauche' } },
+  },
+  { name: 'card_id', selector: { text: {} } },
+] as const;
+
+const computeEditorLabel = (s: { name: string }): string => EDITOR_LABELS[s.name] ?? s.name;
 
 interface ValueChangedEvent extends CustomEvent {
   detail: { value: MediathequeConfig };
@@ -41,50 +84,12 @@ export class MediathequeCardEditor extends LitElement {
   protected override render(): TemplateResult {
     if (!this.hass) return html``;
 
-    const schema = [
-      {
-        name: 'entity',
-        required: true,
-        selector: { entity: { domain: 'sensor', integration: 'mediatheque_veauche' } },
-      },
-      { name: 'title', selector: { text: {} } },
-      {
-        name: 'mode',
-        selector: {
-          select: {
-            mode: 'dropdown',
-            options: [
-              { value: 'list', label: 'Liste (groupée par membre)' },
-              { value: 'covers', label: 'Couvertures (grille à rendre)' },
-            ],
-          },
-        },
-      },
-      {
-        name: 'badges',
-        selector: {
-          select: {
-            multiple: true,
-            options: ALL_BADGES.map((b) => ({
-              value: b,
-              label: EDITOR_BADGE_LABELS[b] ?? b,
-            })),
-          },
-        },
-      },
-      {
-        name: 'total_entity',
-        selector: { entity: { domain: 'sensor', integration: 'mediatheque_veauche' } },
-      },
-      { name: 'card_id', selector: { text: {} } },
-    ];
-
     return html`
       <ha-form
         .hass=${this.hass}
         .data=${this._config}
-        .schema=${schema}
-        .computeLabel=${(s: { name: string }): string => EDITOR_LABELS[s.name] ?? s.name}
+        .schema=${EDITOR_SCHEMA}
+        .computeLabel=${computeEditorLabel}
         @value-changed=${this._valueChanged}
       ></ha-form>
     `;

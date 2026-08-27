@@ -41,14 +41,19 @@ export class MediathequeCard extends LitElement {
 
   @property({ attribute: false }) public set hass(value: HassLike | undefined) {
     this._hass = value;
-    if (!value || !this._config?.entity) return;
-    const next = value.states[this._config.entity];
-    if (this._entityState === next) return;
-    this._entityState = next;
-    if (this._config.mode === 'covers' && this._config.total_entity) {
-      this._totalEntityState = value.states[this._config.total_entity];
-    }
-    this.requestUpdate();
+    // Lit enveloppe ce setter et appelle requestUpdate() lui-même après coup :
+    // inutile (et trompeur) de le rappeler ici. Le filtrage des re-renders
+    // inutiles se fait dans shouldUpdate(), pas ici — sinon on croit optimiser
+    // alors que la carte re-render à chaque événement de l'instance HA.
+    // Aucun early-return avant d'avoir renseigné les deux états : sinon
+    // _totalEntityState reste vide au premier rendu (pas de card_id → pas de
+    // bouton code-barres tant qu'un second tick n'est pas arrivé).
+    const states = value?.states;
+    if (!states || !this._config?.entity) return;
+    this._entityState = states[this._config.entity];
+    this._totalEntityState = this._config.total_entity
+      ? states[this._config.total_entity]
+      : undefined;
   }
   public get hass(): HassLike | undefined {
     return this._hass;
@@ -64,6 +69,8 @@ export class MediathequeCard extends LitElement {
   private _totalEntityState?: HassEntityState;
   private _retry = new RetryScheduler('card', () => this.requestUpdate());
   private _hasRendered = false;
+  private _renderedEntityState?: HassEntityState;
+  private _renderedTotalState?: HassEntityState;
 
   public setConfig(config: MediathequeConfig): void {
     // Seul 'entity' est bloquant — tout le reste est tolérant pour ne jamais
@@ -72,7 +79,11 @@ export class MediathequeCard extends LitElement {
     if (!config || typeof config !== 'object') {
       throw new Error('Configuration manquante ou invalide');
     }
-    if (!config.entity || typeof config.entity !== 'string') {
+    // 'entity' absente ou d'un mauvais type = config réellement invalide → throw.
+    // 'entity' présente mais vide = état transitoire légitime (stub du sélecteur
+    // de cartes, éditeur ouvert avant sélection) → on tolère et on affiche un
+    // loader, sinon le tout premier rendu de l'aperçu est 'Erreur de configuration'.
+    if (config.entity === undefined || typeof config.entity !== 'string') {
       throw new Error('Vous devez définir une entité (entity)');
     }
 
@@ -119,8 +130,25 @@ export class MediathequeCard extends LitElement {
     };
   }
 
-  public static getStubConfig(): MediathequeConfig {
-    return { entity: '', mode: 'list' };
+  public static getStubConfig(
+    hass?: HassLike,
+    entities?: string[],
+    entitiesFallback?: string[]
+  ): MediathequeConfig {
+    // HA instancie un aperçu avec ce stub dès l'ouverture du sélecteur de cartes.
+    // On pré-remplit avec un vrai sensor de l'intégration (reconnu à son attribut
+    // 'membres'), à défaut n'importe quel sensor 'mediatheque'.
+    const states = hass?.states ?? {};
+    const pool = [
+      ...(entities ?? []),
+      ...(entitiesFallback ?? []),
+      ...Object.keys(states),
+    ].filter((id) => id.startsWith('sensor.'));
+    const entity =
+      pool.find((id) => (states[id]?.attributes as AllAttributes | undefined)?.membres) ??
+      pool.find((id) => id.includes('mediatheque')) ??
+      '';
+    return { entity, mode: 'list' };
   }
 
   public static getConfigElement(): HTMLElement {
@@ -156,6 +184,16 @@ export class MediathequeCard extends LitElement {
         mcLog('error', 'card', 'performUpdate sync au mount a échoué : %o', e);
       }
     }
+
+    // loadCardHelpers() est asynchrone : sur un cold load, ce premier rendu peut
+    // sortir un <ha-card> pas encore upgradé (contenu non stylé). On force un
+    // re-render dès que HA a défini l'élément.
+    if (!customElements.get('ha-card')) {
+      void customElements.whenDefined('ha-card').then(() => {
+        mcLog('info', 'card', 'ha-card défini après le premier rendu, re-render');
+        this.requestUpdate();
+      });
+    }
   }
 
   public override disconnectedCallback(): void {
@@ -164,6 +202,8 @@ export class MediathequeCard extends LitElement {
   }
 
   protected override updated(): void {
+    this._renderedEntityState = this._entityState;
+    this._renderedTotalState = this._totalEntityState;
     if (this._hasRendered) {
       this.dispatchEvent(
         new CustomEvent('mediatheque-card-update', { bubbles: true, composed: true })
@@ -177,13 +217,28 @@ export class MediathequeCard extends LitElement {
     if (
       changedProperties.has('_detailLoan') ||
       changedProperties.has('_confirmExtend') ||
-      changedProperties.has('_barcodeOpen')
+      changedProperties.has('_barcodeOpen') ||
+      // ...ou la config (aperçu live de l'éditeur) : elle peut arriver dans le
+      // même lot qu'un 'hass' dont les états n'ont pas bougé.
+      changedProperties.has('_config')
     ) {
       return true;
     }
-    // Sinon : si une modale est déjà ouverte (et que le changement vient de hass
-    // ou autre), on bloque pour ne pas casser l'interaction utilisateur.
-    return !(this._detailLoan || this._confirmExtend || this._barcodeOpen) || !this._hasRendered;
+    // Tant que rien n'a été rendu pour de bon, on ne bloque jamais.
+    if (!this._hasRendered) return true;
+    // Une modale ouverte : on bloque les rafraîchissements venus de hass pour ne
+    // pas casser l'interaction utilisateur.
+    if (this._detailLoan || this._confirmExtend || this._barcodeOpen) return false;
+    // HA réassigne 'hass' à chaque événement de l'instance, pas seulement pour nos
+    // entités. On ne re-render que si nos états ont réellement changé. Un
+    // requestUpdate() sans nom (retry, ha-card défini) passe toujours.
+    if (changedProperties.has('hass')) {
+      return (
+        this._entityState !== this._renderedEntityState ||
+        this._totalEntityState !== this._renderedTotalState
+      );
+    }
+    return true;
   }
 
   protected override render(): TemplateResult {
@@ -195,6 +250,8 @@ export class MediathequeCard extends LitElement {
       return this._render();
     } catch (e) {
       mcLog('error', 'card', 'render() a throw, fallback loader : %o', e);
+      // Sans ça, on reste sur l'erreur jusqu'au prochain hass utile.
+      this._retry.schedule();
       return this._renderLoader('Médiathèque', 'Erreur — voir console');
     }
   }
@@ -216,6 +273,9 @@ export class MediathequeCard extends LitElement {
     }
 
     const entityId = this._config.entity;
+    if (!entityId) {
+      return this._renderLoader(title, 'Sélectionnez une entité');
+    }
     const state = this._hass.states[entityId];
 
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
