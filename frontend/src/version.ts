@@ -1,4 +1,4 @@
-export const MEDIATHEQUE_CARD_VERSION = '3.2.6';
+export const MEDIATHEQUE_CARD_VERSION = '3.2.7';
 
 export function logBanner(): void {
   // eslint-disable-next-line no-console
