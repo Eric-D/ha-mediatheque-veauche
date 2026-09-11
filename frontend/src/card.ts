@@ -811,16 +811,57 @@ void window.loadCardHelpers?.().catch((e: unknown) => {
   mcLog('warn', 'card', 'loadCardHelpers() a échoué : %o', e);
 });
 
+const CARD_TAG = 'mediatheque-card';
+const MAX_REREGISTRATIONS = 5;
+let reregistrations = 0;
+
+/**
+ * Garantit que le tag est résolvable par le registre d'éléments personnalisés
+ * *actuellement installé*.
+ *
+ * Home Assistant charge @webcomponents/scoped-custom-element-registry, qui
+ * REMPLACE window.customElements par sa propre implémentation, avec sa propre
+ * table. Si ce module s'enregistre avant l'installation du polyfill, la
+ * définition atterrit dans le registre natif : le polyfill prend ensuite la
+ * main et ne nous connaît pas. HA appelle customElements.get() → rien, et
+ * affiche « Custom element doesn't exist ». Son rattrapage par whenDefined()
+ * est mort-né pour la même raison, et réémettre 'll-rebuild' n'y change rien
+ * puisque la reconstruction retombe sur un tag introuvable.
+ *
+ * Symptôme observé, impossible autrement : customElements.get(tag) renvoie
+ * undefined alors que document.createElement(tag) produit un élément upgradé
+ * avec son setConfig — document.createElement consulte, lui, le registre natif.
+ *
+ * D'où l'intermittence, et son inversion apparente : à 109 ms on écrit dans le
+ * registre natif et ça casse, à 130 ms le polyfill est déjà là et ça marche.
+ * C'est le chargement le plus rapide qui échoue.
+ */
+function ensureRegisteredInCurrentRegistry(): boolean {
+  if (customElements.get(CARD_TAG)) return false;
+  if (reregistrations >= MAX_REREGISTRATIONS) return false;
+  reregistrations++;
+  try {
+    // Constructeur neuf obligatoire : une même classe ne peut pas être
+    // enregistrée deux fois, y compris dans un registre différent.
+    customElements.define(CARD_TAG, class extends MediathequeCard {});
+    mcLog(
+      'warn',
+      'card',
+      'ré-enregistré à t=%dms : le registre d\'éléments personnalisés avait été remplacé depuis le premier enregistrement',
+      Math.round(performance.now())
+    );
+    return true;
+  } catch (e) {
+    mcLog('error', 'card', 'ré-enregistrement impossible : %o', e);
+    return false;
+  }
+}
+
 // Garde idempotente : sur WebView Android, le script peut être ré-évalué
 // (sleep/wake, retour du background). Sans cette garde, customElements.define
 // throw "already defined" → KO total.
-if (!customElements.get('mediatheque-card')) {
-  customElements.define('mediatheque-card', MediathequeCard);
-  // Horodatage volontaire : si HA construit la vue avant cet instant, il
-  // remplace la carte par une carte d'erreur (« élément personnalisé
-  // introuvable », que l'interface titre « Erreur de configuration »). Comparer
-  // ce temps à celui du chargement de la vue est le seul moyen de constater la
-  // course depuis la console.
+if (!customElements.get(CARD_TAG)) {
+  customElements.define(CARD_TAG, MediathequeCard);
   mcLog(
     'info',
     'card',
@@ -875,9 +916,12 @@ function repairOrphanErrorCards(): number {
 
 // Plusieurs passes avant le seuil de 2 s à partir duquel HA rend l'erreur
 // visible : la vue peut aussi se construire juste après notre définition.
-for (const delay of [0, 150, 600, 1500]) {
+for (const delay of [0, 50, 150, 400, 1000, 2000, 4000]) {
   window.setTimeout(() => {
     try {
+      // D'abord le registre : réémettre 'll-rebuild' ne sert à rien tant que HA
+      // ne sait pas résoudre le tag.
+      ensureRegisteredInCurrentRegistry();
       const repaired = repairOrphanErrorCards();
       if (repaired > 0) {
         mcLog(
