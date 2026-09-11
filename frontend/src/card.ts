@@ -240,19 +240,15 @@ export class MediathequeCard extends LitElement {
     // réussi : un élément re-connecté (déplacement entre sections, re-render de
     // vue) repartirait donc avec un quota déjà épuisé.
     this._retry.reset();
-    // Force le premier render synchrone : HA peut checker la carte juste
-    // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
-    // render. Si elle voit le shadow root vide, elle substitue par
-    // 'Erreur de configuration' (substitution définitive pour la session).
-    // Try/catch obligatoire : sans ça, une exception remonterait synchroniquement
-    // au appendChild de HA, qui marquerait la carte comme cassée.
-    if (!this._hasRendered) {
-      try {
-        this.performUpdate();
-      } catch (e) {
-        mcLog('error', 'card', 'performUpdate sync au mount a échoué : %o', e);
-      }
-    }
+    // Pas de performUpdate() synchrone ici. Il avait été ajouté (84a32e8) pour
+    // fermer une course supposée : « HA checke le shadow root juste après
+    // l'insertion, le voit vide et substitue une carte d'erreur ». Ce mécanisme
+    // n'existe pas — HA vérifie que l'élément est défini et que setConfig ne
+    // lève pas, rien d'autre. En échange, l'appel faisait rendre notre élément
+    // de façon ré-entrante à l'intérieur du commit Lit de HA, ce qui est hors
+    // contrat et peut perturber son cycle de mise à jour : l'erreur se produit
+    // alors de leur côté, invisible depuis notre try/catch. Le symptôme que ce
+    // correctif visait est d'ailleurs réapparu.
 
     // loadCardHelpers() est asynchrone : sur un cold load, ce premier rendu peut
     // sortir un <ha-card> pas encore upgradé (contenu non stylé). On force un
