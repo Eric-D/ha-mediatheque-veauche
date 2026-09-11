@@ -40,7 +40,9 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 
 ### Ressource Lovelace
 
-La ressource JavaScript est enregistrée automatiquement par l'intégration. Si elle n'apparaît pas, ajoutez-la manuellement dans **Paramètres > Tableaux de bord > Ressources** :
+La ressource JavaScript est enregistrée automatiquement par l'intégration, de deux façons complémentaires : injection dans le document (`add_extra_js_url`) **et** déclaration comme ressource Lovelace. La seconde est nécessaire car la première est indépendante du cycle de vie du panneau : sur un chargement lent, Home Assistant peut construire la vue avant que le module ne soit évalué et remplacer la carte par « Erreur de configuration » (en réalité : élément personnalisé introuvable).
+
+En mode YAML, la collection de ressources n'est pas modifiable par une intégration : ajoutez-la vous-même dans `configuration.yaml`. En mode interface, si elle n'apparaît pas, ajoutez-la manuellement dans **Paramètres > Tableaux de bord > Ressources** :
 
 ```
 URL : /mediatheque_veauche/mediatheque-card.js

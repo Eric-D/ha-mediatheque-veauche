@@ -60,6 +60,12 @@ export class MediathequeCard extends LitElement {
   @state() private _confirmExtend: { loan: Loan } | null = null;
   @state() private _barcodeOpen = false;
 
+  /** Sert uniquement à tracer le cycle de vie : le chemin nominal étant
+   *  silencieux, « aucun log » ne permettait pas de distinguer « HA n'a jamais
+   *  utilisé notre élément » de « tout s'est bien passé ». */
+  private static _instances = 0;
+  private readonly _id = ++MediathequeCard._instances;
+
   private _hass?: HassLike;
   private _entityState?: HassEntityState;
   private _totalEntityState?: HassEntityState;
@@ -137,6 +143,16 @@ export class MediathequeCard extends LitElement {
         }
       }
     }
+
+    mcLog(
+      'info',
+      'card',
+      '#%d setConfig accepté (entity=%s, mode=%s) à t=%dms',
+      this._id,
+      entity || '(vide)',
+      normalizedMode ?? 'list',
+      Math.round(performance.now())
+    );
 
     const previous = this._config;
     this._config = {
@@ -224,19 +240,15 @@ export class MediathequeCard extends LitElement {
     // réussi : un élément re-connecté (déplacement entre sections, re-render de
     // vue) repartirait donc avec un quota déjà épuisé.
     this._retry.reset();
-    // Force le premier render synchrone : HA peut checker la carte juste
-    // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
-    // render. Si elle voit le shadow root vide, elle substitue par
-    // 'Erreur de configuration' (substitution définitive pour la session).
-    // Try/catch obligatoire : sans ça, une exception remonterait synchroniquement
-    // au appendChild de HA, qui marquerait la carte comme cassée.
-    if (!this._hasRendered) {
-      try {
-        this.performUpdate();
-      } catch (e) {
-        mcLog('error', 'card', 'performUpdate sync au mount a échoué : %o', e);
-      }
-    }
+    // Pas de performUpdate() synchrone ici. Il avait été ajouté (84a32e8) pour
+    // fermer une course supposée : « HA checke le shadow root juste après
+    // l'insertion, le voit vide et substitue une carte d'erreur ». Ce mécanisme
+    // n'existe pas — HA vérifie que l'élément est défini et que setConfig ne
+    // lève pas, rien d'autre. En échange, l'appel faisait rendre notre élément
+    // de façon ré-entrante à l'intérieur du commit Lit de HA, ce qui est hors
+    // contrat et peut perturber son cycle de mise à jour : l'erreur se produit
+    // alors de leur côté, invisible depuis notre try/catch. Le symptôme que ce
+    // correctif visait est d'ailleurs réapparu.
 
     // loadCardHelpers() est asynchrone : sur un cold load, ce premier rendu peut
     // sortir un <ha-card> pas encore upgradé (contenu non stylé). On force un
@@ -255,6 +267,17 @@ export class MediathequeCard extends LitElement {
   }
 
   protected override updated(): void {
+    if (!this._firstUpdateLogged) {
+      this._firstUpdateLogged = true;
+      mcLog(
+        'info',
+        'card',
+        '#%d premier rendu effectué à t=%dms (données=%s)',
+        this._id,
+        Math.round(performance.now()),
+        this._hasRendered ? 'oui' : 'non, loader'
+      );
+    }
     this._renderedEntityState = this._entityState;
     this._renderedTotalState = this._totalEntityState;
     if (this._hasRendered) {
@@ -329,7 +352,13 @@ export class MediathequeCard extends LitElement {
     if (!entityId) {
       return this._renderLoader(title, 'Sélectionnez une entité');
     }
-    const state = this._hass.states[entityId];
+    const states = this._hass.states;
+    if (!states) {
+      mcLog('warn', 'card', 'hass.states absent, rendu du loader');
+      this._retry.schedule();
+      return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
+    }
+    const state = states[entityId];
 
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
@@ -383,6 +412,7 @@ export class MediathequeCard extends LitElement {
   }
 
   private _lastTemplate?: TemplateResult;
+  private _firstUpdateLogged = false;
 
   private _renderLoader(title: string, message = 'Chargement…'): TemplateResult {
     return html`
@@ -786,6 +816,19 @@ void window.loadCardHelpers?.().catch((e: unknown) => {
 // throw "already defined" → KO total.
 if (!customElements.get('mediatheque-card')) {
   customElements.define('mediatheque-card', MediathequeCard);
+  // Horodatage volontaire : si HA construit la vue avant cet instant, il
+  // remplace la carte par une carte d'erreur (« élément personnalisé
+  // introuvable », que l'interface titre « Erreur de configuration »). Comparer
+  // ce temps à celui du chargement de la vue est le seul moyen de constater la
+  // course depuis la console.
+  mcLog(
+    'info',
+    'card',
+    'élément enregistré à t=%dms après le début du chargement de la page',
+    Math.round(performance.now())
+  );
+} else {
+  mcLog('info', 'card', 'module déjà enregistré, ce chargement est ignoré');
 }
 
 window.customCards = window.customCards ?? [];
