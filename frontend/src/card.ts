@@ -49,12 +49,7 @@ export class MediathequeCard extends LitElement {
     // Aucun early-return avant d'avoir renseigné les deux états : sinon
     // _totalEntityState reste vide au premier rendu (pas de card_id → pas de
     // bouton code-barres tant qu'un second tick n'est pas arrivé).
-    const states = value?.states;
-    if (!states || !this._config?.entity) return;
-    this._entityState = states[this._config.entity];
-    this._totalEntityState = this._config.total_entity
-      ? states[this._config.total_entity]
-      : undefined;
+    this._syncEntityStates();
   }
   public get hass(): HassLike | undefined {
     return this._hass;
@@ -131,22 +126,52 @@ export class MediathequeCard extends LitElement {
             ALL_BADGES.join(', ')
           );
         }
-        // Un filtre dont plus rien n'est valide masquerait la totalité des
-        // emprunts, ce qui est indiscernable de « aucun emprunt ».
-        if (valid.length === 0 && config.badges.length > 0) {
-          mcLog('warn', 'card', 'Aucun badge valide dans le filtre, filtre ignoré');
+        // Un filtre vide masquerait la totalité des emprunts, ce qui est
+        // indiscernable de « aucun emprunt ». Vaut aussi pour « badges: [] »
+        // écrit à la main, pas seulement pour une liste devenue vide après
+        // validation.
+        if (valid.length === 0) {
+          mcLog('warn', 'card', 'Filtre de badges vide, filtre ignoré');
         } else {
           normalizedBadges = valid as BadgeType[];
         }
       }
     }
 
+    const previous = this._config;
     this._config = {
       ...config,
       entity,
       mode: normalizedMode,
       badges: normalizedBadges,
     };
+
+    // Changer d'entité invalide tout ce qui a été rendu jusqu'ici : sans ce
+    // reset, _render() renverrait _lastTemplate (les emprunts de l'ancienne
+    // entité) dès que la nouvelle est indisponible, indéfiniment.
+    if (
+      previous?.entity !== this._config.entity ||
+      previous?.total_entity !== this._config.total_entity
+    ) {
+      this._hasRendered = false;
+      this._lastTemplate = undefined;
+      this._renderedEntityState = undefined;
+      this._renderedTotalState = undefined;
+      this._retry.reset();
+    }
+    // Les états sont résolus dans le setter hass ; sans ce rappel, une nouvelle
+    // entité n'est prise en compte qu'au prochain push de hass.
+    this._syncEntityStates();
+  }
+
+  /** Résout les états suivis à partir de la config et du hass courants. */
+  private _syncEntityStates(): void {
+    const states = this._hass?.states;
+    if (!states || !this._config?.entity) return;
+    this._entityState = states[this._config.entity];
+    this._totalEntityState = this._config.total_entity
+      ? states[this._config.total_entity]
+      : undefined;
   }
 
   public static getStubConfig(
@@ -190,9 +215,9 @@ export class MediathequeCard extends LitElement {
 
   public override connectedCallback(): void {
     super.connectedCallback();
-    // Le compteur de retries n'est remis à zéro que par un rendu de données
-    // réussi : sans ça, un élément re-connecté (déplacement entre sections,
-    // re-render de vue) repartirait avec un quota déjà épuisé.
+    // Hors d'ici, le compteur n'est remis à zéro que par un rendu de données
+    // réussi : un élément re-connecté (déplacement entre sections, re-render de
+    // vue) repartirait donc avec un quota déjà épuisé.
     this._retry.reset();
     // Force le premier render synchrone : HA peut checker la carte juste
     // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
@@ -370,27 +395,25 @@ export class MediathequeCard extends LitElement {
     `;
   }
 
-  /** Au-delà de ce délai sans synchronisation réussie, on prévient l'utilisateur. */
-  private static readonly STALE_AFTER_MS = 2 * 60 * 60 * 1000;
-
   private _renderStaleNotice(attrs: FreshnessAttributes): TemplateResult | typeof nothing {
     // fetch_ok=false signifie que le coordinator est retombé sur son cache : les
     // entités restent disponibles et les données paraissent fraîches alors que
     // days_left est figé à la date du dernier scrape.
     if (attrs.fetch_ok !== false) return nothing;
 
-    const lastSuccess = attrs.last_success ? Date.parse(attrs.last_success) : NaN;
-    const age = Number.isNaN(lastSuccess) ? Infinity : Date.now() - lastSuccess;
-    // Au démarrage de HA les données viennent du cache le temps du premier
-    // fetch : inutile d'alarmer pour quelques secondes de décalage.
-    if (age < MediathequeCard.STALE_AFTER_MS) return nothing;
+    const lastSuccess = attrs.last_success ? new Date(attrs.last_success) : null;
+    const stamp = lastSuccess?.getTime();
+    // Ce qui rend days_left faux n'est pas l'écoulement de N heures, c'est le
+    // passage de minuit : tant que la dernière synchro date d'aujourd'hui, les
+    // délais affichés restent justes même si le dernier fetch a échoué.
+    if (stamp !== undefined && !Number.isNaN(stamp)) {
+      if (lastSuccess!.toDateString() === new Date().toDateString()) return nothing;
+    }
 
-    const since = Number.isNaN(lastSuccess)
-      ? 'date inconnue'
-      : new Date(lastSuccess).toLocaleString('fr-FR', {
-          dateStyle: 'short',
-          timeStyle: 'short',
-        });
+    const since =
+      stamp === undefined || Number.isNaN(stamp)
+        ? 'date inconnue'
+        : lastSuccess!.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
     return html`
       <div class="mc-stale" role="status">
         <span>⚠</span>
@@ -426,15 +449,7 @@ export class MediathequeCard extends LitElement {
       ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
       : livres;
 
-    // Repli heuristique : le sensor 'total' porte le card_id, pas le sensor
-    // filtré. On ne tente la substitution que si le nom s'y prête, sinon on
-    // relirait la même entité pour rien.
-    const entityId = this._config!.entity;
-    const totalState =
-      this._totalEntityState ??
-      (entityId.includes('_due_week')
-        ? this._hass?.states[entityId.replace('_due_week', '_total')]
-        : undefined);
+    const totalState = this._totalEntityState;
     const cardId =
       (attrs.card_id ??
         (totalState?.attributes as { card_id?: string } | undefined)?.card_id ??

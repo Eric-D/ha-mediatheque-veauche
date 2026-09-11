@@ -19,6 +19,7 @@ CSRF_PATTERN = re.compile(r'^[a-f0-9]{32}$')
 # de poll entier quand le site rame.
 BOOK_TIMEOUT = 10
 DEFAULT_ACCOUNT_NAME = "Compte principal"
+DEFAULT_MEMBER_NAME = "Emprunteur inconnu"
 MONTHS_FR = [
     "", "janvier", "février", "mars", "avril", "mai", "juin",
     "juillet", "août", "septembre", "octobre", "novembre", "décembre",
@@ -131,7 +132,7 @@ class MediathequeVeaucheClient:
         """Fetch the cover image URL and ISBN for a book."""
         cached = self._book_details_cache.get(book_id)
         if cached is not None:
-            return cached
+            return dict(cached)
         result = {"cover_url": None, "isbn": None}
         if not self._session:
             return result
@@ -147,9 +148,13 @@ class MediathequeVeaucheClient:
             isbn_input = soup.find("input", id="BW_id_isbn")
             if isbn_input and isbn_input.get("value"):
                 result["isbn"] = isbn_input["value"].strip()
-            # Mémorisé seulement en cas de succès : un échec réseau ne doit pas
-            # figer une couverture manquante pour toute la vie du process.
-            self._book_details_cache[book_id] = result
+            # Mémorisé seulement si on a effectivement trouvé quelque chose.
+            # Un HTTP 200 ne prouve rien : page de maintenance, redirection vers
+            # le login rendue en 200, couverture pas encore indexée… mémoriser
+            # ces réponses figerait un livre sans couverture pour toute la vie
+            # du process.
+            if result["cover_url"] or result["isbn"]:
+                self._book_details_cache[book_id] = dict(result)
         except Exception as exc:
             _LOGGER.warning("Impossible de récupérer les détails du livre %s: %s", book_id, exc)
         return result
@@ -217,7 +222,12 @@ class MediathequeVeaucheClient:
         if has_emprunteur:
             emp_cell = cells[idx]
             idx += 1
-            emprunteur = self._extract_firstname(emp_cell.get_text(strip=True)) or default_emprunteur
+            emprunteur = self._extract_firstname(emp_cell.get_text(strip=True))
+            if not emprunteur:
+                # Surtout pas de repli sur le titulaire : le prêt lui serait
+                # attribué silencieusement et fausserait son décompte.
+                _LOGGER.warning("Emprunteur illisible pour %r", titre)
+                emprunteur = DEFAULT_MEMBER_NAME
         else:
             emprunteur = default_emprunteur
 
@@ -391,6 +401,14 @@ class MediathequeVeaucheClient:
         _LOGGER.info("Prolongation du prêt: %s", extend_url)
         resp = self._session.get(extend_url, timeout=15)
         resp.raise_for_status()
+        # La session date du dernier fetch : expirée, le site renvoie la page de
+        # login en HTTP 200. Sans ce contrôle on loggue « prolongation
+        # effectuée » et la carte bascule en « prolongé » sans que rien ne le
+        # soit — exactement le genre d'échec silencieux qu'on traque.
+        if "com_users" in resp.url and "login" in resp.url.lower():
+            raise AuthenticationError(
+                "Session expirée : la prolongation a été redirigée vers la page de connexion"
+            )
         _LOGGER.info("Prolongation effectuée (status %d)", resp.status_code)
 
     def fetch_all(self) -> dict:

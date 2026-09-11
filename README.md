@@ -103,7 +103,7 @@ Affiche une grille de miniatures avec un badge jours-restants superposé en haut
 
 ```yaml
 type: custom:mediatheque-card
-entity: sensor.emprunts_mediatheque_due_week
+entity: sensor.emprunts_a_rendre_cette_semaine
 mode: covers
 ```
 
@@ -123,6 +123,8 @@ Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents
   "compte": "Jean",
   "total": 5,
   "card_id": "123456",
+  "last_success": "2024-03-08T07:30:00+00:00",
+  "fetch_ok": true,
   "membres": {
     "Jean": [
       {
@@ -143,6 +145,10 @@ Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents
   }
 }
 ```
+
+`last_success` et `fetch_ok` sont également présents sur `sensor.emprunts_a_rendre_cette_semaine` et `sensor.emprunts_en_retard`, avec `card_id`. `fetch_ok: false` signifie que la dernière synchronisation a échoué et que les données affichées viennent du cache : si elles datent d'un jour antérieur, la carte affiche un bandeau d'avertissement car les délais `days_left` sont alors décalés.
+
+`days_left` vaut `null` quand la date d'échéance est illisible sur le site source. La carte affiche alors le badge `unknown` plutôt qu'un délai inventé.
 
 ## Licence
 

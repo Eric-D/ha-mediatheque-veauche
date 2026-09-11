@@ -40,10 +40,13 @@ export interface MediathequeConfig {
   card_id?: string;
 }
 
+// Les champs optionnels arrivent en `null` depuis Python, pas en `undefined` :
+// les typer `?: string` inviterait un `=== undefined` ou un `??` silencieusement
+// faux.
 export interface Loan {
   titre: string;
-  book_id?: string;
-  due_date?: string;
+  book_id?: string | null;
+  due_date?: string | null;
   due_date_display: string;
   // null = date d'échéance illisible côté scraper. Surtout pas 0, qui veut
   // dire « à rendre aujourd'hui ».
@@ -51,10 +54,10 @@ export interface Loan {
   can_extend?: boolean;
   extended?: boolean;
   extend_disabled?: boolean;
-  extend_url?: string;
-  cover_url?: string;
-  isbn?: string;
-  emprunteur?: string;
+  extend_url?: string | null;
+  cover_url?: string | null;
+  isbn?: string | null;
+  emprunteur?: string | null;
 }
 
 export interface MembersMap {

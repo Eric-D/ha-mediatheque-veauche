@@ -1,6 +1,7 @@
 """The Médiathèque de Veauche integration."""
 from __future__ import annotations
 
+import copy
 import logging
 from pathlib import Path
 
@@ -29,15 +30,24 @@ SERVICE_EXTEND_SCHEMA = vol.Schema({
 })
 
 
-def _mark_loan_extended(data: dict, extend_url: str) -> None:
-    """Mark a loan as extended in the coordinator data."""
-    for membres in (data.get("membres") or {}).values():
-        for loan in membres:
+def _mark_loan_extended(data: dict, extend_url: str) -> dict | None:
+    """Renvoie une copie de `data` où le prêt visé est marqué comme prolongé.
+
+    Surtout pas de mutation en place : l'ancien State de HA référence les mêmes
+    dicts de prêts, donc la comparaison d'attributs les verrait déjà modifiés,
+    aucun state_changed ne serait émis et la carte n'afficherait la prolongation
+    qu'au prochain cycle de poll.
+    """
+    for member, loans in (data.get("membres") or {}).items():
+        for index, loan in enumerate(loans):
             if loan.get("extend_url") == extend_url:
-                loan["can_extend"] = False
-                loan["extended"] = True
-                loan["extend_url"] = None
-                return
+                updated = copy.deepcopy(data)
+                marked = updated["membres"][member][index]
+                marked["can_extend"] = False
+                marked["extended"] = True
+                marked["extend_url"] = None
+                return updated
+    return None
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -53,7 +63,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         # erreur sans que rien n'apparaisse dans les logs.
         _LOGGER.error(
             "Fichier de la carte introuvable (%s) — la carte Lovelace ne sera "
-            "pas disponible. Réinstallez l'intégration via HACS.",
+            "pas disponible. Réinstallez l'intégration via HACS puis redémarrez "
+            "Home Assistant.",
             card_path,
         )
         hass.data[DOMAIN + "_static_registered"] = True
@@ -101,8 +112,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Update coordinator data to reflect the extension
                 coordinator = entry_data.get("coordinator")
                 if coordinator and coordinator.data:
-                    _mark_loan_extended(coordinator.data, extend_url)
-                    coordinator.async_set_updated_data(coordinator.data)
+                    updated = _mark_loan_extended(coordinator.data, extend_url)
+                    if updated is not None:
+                        coordinator.async_set_updated_data(updated)
                 return
             _LOGGER.error("Aucun client disponible pour la prolongation")
 
