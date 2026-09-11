@@ -40,9 +40,9 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 
 ### Ressource Lovelace
 
-La ressource JavaScript est enregistrée automatiquement par l'intégration, de deux façons complémentaires : injection dans le document (`add_extra_js_url`) **et** déclaration comme ressource Lovelace. La seconde est nécessaire car la première est indépendante du cycle de vie du panneau : sur un chargement lent, Home Assistant peut construire la vue avant que le module ne soit évalué et remplacer la carte par « Erreur de configuration » (en réalité : élément personnalisé introuvable).
+La carte est déclarée automatiquement comme **ressource Lovelace** par l'intégration. C'est volontairement le seul mécanisme utilisé : Home Assistant charge `@webcomponents/scoped-custom-element-registry`, qui remplace `window.customElements` par sa propre implémentation sans jamais consulter le registre natif. Un script injecté dans le document (`add_extra_js_url`) est évalué *avant* ce remplacement, et sa définition reste alors invisible à Home Assistant, qui affiche « Custom element doesn't exist » de façon définitive. Les ressources Lovelace, elles, sont chargées par le panneau, donc après l'installation du polyfill.
 
-En mode YAML, la collection de ressources n'est pas modifiable par une intégration : ajoutez-la vous-même dans `configuration.yaml`. En mode interface, si elle n'apparaît pas, ajoutez-la manuellement dans **Paramètres > Tableaux de bord > Ressources** :
+En mode YAML, la collection de ressources n'est pas modifiable par une intégration : l'intégration retombe sur `add_extra_js_url` en le signalant dans les logs, et il vaut mieux déclarer la ressource vous-même dans `configuration.yaml`. En mode interface, si elle n'apparaît pas, ajoutez-la manuellement dans **Paramètres > Tableaux de bord > Ressources** :
 
 ```
 URL : /mediatheque_veauche/mediatheque-card.js

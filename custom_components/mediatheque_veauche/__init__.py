@@ -78,25 +78,25 @@ def _get_lovelace_resources(hass: HomeAssistant):
     return resources
 
 
-async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
-    """Déclare la carte comme ressource Lovelace.
+async def _async_register_lovelace_resource(hass: HomeAssistant) -> bool:
+    """Déclare la carte comme ressource Lovelace. True si c'est en place.
 
-    add_extra_js_url() injecte le script dans le document, indépendamment du
-    cycle de vie du panneau Lovelace : sur un chargement lent, HA peut
-    construire la vue avant que le module ne soit évalué, et remplace alors la
-    carte par « Erreur de configuration » (en réalité : élément personnalisé
-    introuvable). Les ressources Lovelace, elles, sont chargées par le panneau
-    lui-même. On enregistre donc les deux.
+    C'est le mécanisme à privilégier, et pas seulement pour l'ordre de
+    chargement : Home Assistant charge @webcomponents/scoped-custom-element-
+    registry, qui REMPLACE window.customElements par sa propre implémentation
+    et sa propre table, sans jamais consulter le registre natif. Un module
+    injecté par add_extra_js_url est évalué avant ce remplacement : sa
+    définition atterrit dans le registre natif et reste invisible à HA, qui
+    affiche « Custom element doesn't exist » de façon définitive.
+
+    Les ressources Lovelace sont chargées par le panneau, donc bien après
+    l'installation du polyfill. C'est pour cette raison que les cartes
+    distribuées en ressource ne rencontrent jamais ce problème.
     """
     try:
         resources = _get_lovelace_resources(hass)
         if resources is None:
-            _LOGGER.warning(
-                "Collection de ressources Lovelace indisponible (mode YAML, ou "
-                "forme de hass.data['lovelace'] inattendue) : la carte reste "
-                "injectée via add_extra_js_url uniquement"
-            )
-            return
+            return False
 
         if not resources.loaded:
             await resources.async_get_info()
@@ -106,23 +106,40 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
             if url.split("?")[0] != CARD_URL:
                 continue
             if url == CARD_RESOURCE_URL:
-                return
+                return True
             # Version changée : on met à jour plutôt que d'accumuler les
             # doublons, sinon deux versions du module coexisteraient et la
             # première enregistrée gagnerait.
             await resources.async_update_item(item["id"], {"url": CARD_RESOURCE_URL})
             _LOGGER.info("Ressource Lovelace mise à jour : %s", CARD_RESOURCE_URL)
-            return
+            return True
 
         await resources.async_create_item(
             {"res_type": "module", "url": CARD_RESOURCE_URL}
         )
         _LOGGER.info("Ressource Lovelace enregistrée : %s", CARD_RESOURCE_URL)
+        return True
     except Exception:  # noqa: BLE001 - ne doit jamais empêcher le setup
-        _LOGGER.exception(
-            "Impossible d'enregistrer la ressource Lovelace ; la carte reste "
-            "injectée via add_extra_js_url"
-        )
+        _LOGGER.exception("Enregistrement de la ressource Lovelace impossible")
+        return False
+
+
+async def _async_setup_card(hass: HomeAssistant) -> None:
+    """Rend la carte disponible, par le chemin le plus sûr d'abord."""
+    if await _async_register_lovelace_resource(hass):
+        return
+
+    # Repli : mode YAML, ou API des ressources inattendue. La carte sera
+    # injectée dans le document, donc potentiellement évaluée avant le polyfill
+    # de registre — le module sait se ré-enregistrer dans ce cas, mais mieux
+    # vaut que l'utilisateur sache pourquoi.
+    _LOGGER.warning(
+        "Ressources Lovelace non modifiables (mode YAML ?) : repli sur "
+        "add_extra_js_url. Pour un chargement plus fiable, déclarez la "
+        "ressource vous-même : url %s, type « module ».",
+        CARD_RESOURCE_URL,
+    )
+    add_extra_js_url(hass, CARD_RESOURCE_URL)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -148,11 +165,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(card_path), False)]
     )
-    add_extra_js_url(hass, CARD_RESOURCE_URL)
 
     # Après le démarrage : le composant lovelace n'est pas encore configuré au
-    # moment où async_setup tourne.
-    async_at_started(hass, _async_register_lovelace_resource)
+    # moment où async_setup tourne. On n'injecte plus systématiquement le script
+    # dans le document — c'était précisément la cause du « Custom element
+    # doesn't exist » intermittent.
+    async_at_started(hass, _async_setup_card)
 
     hass.data[DOMAIN + "_static_registered"] = True
 
