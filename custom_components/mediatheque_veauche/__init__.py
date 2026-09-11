@@ -22,7 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
-CARD_VERSION = "3.3.0"
+CARD_VERSION = "3.4.0"
 CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
 # Même URL exacte pour les deux mécanismes d'injection : un module ES n'est
 # évalué qu'une fois par URL, donc le double enregistrement est gratuit et ne
