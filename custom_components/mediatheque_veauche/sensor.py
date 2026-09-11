@@ -28,6 +28,40 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 
 
+def _is_number(value: object) -> bool:
+    """Nombre exploitable pour une comparaison (None accepté, bool refusé)."""
+    return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
+
+
+def _is_valid_payload(data: object) -> bool:
+    """Vérifie qu'un payload (souvent relu du cache disque) a la forme attendue.
+
+    Le Store versionne le conteneur, pas le contenu : un cache écrit par une
+    version antérieure peut manquer de clés et faire lever les sensors à chaque
+    écriture d'état. Mieux vaut l'ignorer que casser l'intégration.
+    """
+    if not isinstance(data, dict):
+        return False
+    membres = data.get("membres")
+    if not isinstance(membres, dict):
+        return False
+    for loans in membres.values():
+        if not isinstance(loans, list):
+            return False
+        for loan in loans:
+            if not isinstance(loan, dict):
+                return False
+            # days_left est comparé numériquement à chaque écriture d'état :
+            # une chaîne passerait le test « is not None » et lèverait un
+            # TypeError à chaque cycle.
+            if not _is_number(loan.get("days_left")):
+                return False
+    subscription = data.get("subscription")
+    if subscription is not None and not isinstance(subscription, dict):
+        return False
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -44,6 +78,15 @@ async def async_setup_entry(
 
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
     cached = await store.async_load() or {}
+    if not isinstance(cached, dict):
+        _LOGGER.warning("Cache disque corrompu (conteneur %s), ignoré", type(cached).__name__)
+        cached = {}
+    if cached.get("data") is not None and not _is_valid_payload(cached["data"]):
+        _LOGGER.warning(
+            "Cache disque au format inattendu (écrit par une version antérieure ?), ignoré"
+        )
+        cached.pop("data", None)
+        cached.pop("last_success", None)
     state = {"last_success": cached.get("last_success")}
 
     async def async_update_data() -> dict:
@@ -51,6 +94,8 @@ async def async_setup_entry(
         try:
             data = await hass.async_add_executor_job(client.fetch_all)
             state["last_success"] = dt_util.utcnow().isoformat()
+            # Le cache disque reçoit la sortie brute du scraper : y écrire les
+            # marqueurs de fraîcheur les figerait pour la prochaine relecture.
             cached["data"] = data
             cached["last_success"] = state["last_success"]
             await store.async_save(cached)
@@ -60,7 +105,7 @@ async def async_setup_entry(
                 data.get("due_this_week", 0),
                 data.get("overdue", 0),
             )
-            return data
+            return {**data, "last_success": state["last_success"], "fetch_ok": True}
         except Exception as err:
             _LOGGER.warning("Échec de la mise à jour des données: %s", err)
             if cached.get("data"):
@@ -68,7 +113,19 @@ async def async_setup_entry(
                     "Utilisation des données en cache (dernier fetch: %s)",
                     state["last_success"],
                 )
-                return cached["data"]
+                # Copie marquée : sans horodatage d'échec, le payload serait
+                # identique au cycle précédent, HA dédoublonnerait l'écriture
+                # d'état et la carte n'aurait aucun moyen de savoir que les
+                # données affichées sont périmées.
+                # coordinator.data plutôt que cached["data"] : il porte les
+                # prolongations marquées en mémoire depuis le dernier fetch.
+                base = coordinator.data if coordinator.data else cached["data"]
+                return {
+                    **base,
+                    "last_success": state["last_success"],
+                    "fetch_ok": False,
+                    "last_error_at": dt_util.utcnow().isoformat(),
+                }
             raise UpdateFailed(f"Error fetching library data: {err}") from err
 
     coordinator = DataUpdateCoordinator(
@@ -84,7 +141,14 @@ async def async_setup_entry(
 
     # Pre-fill coordinator with cached data so sensors have values immediately
     if cached.get("data"):
-        coordinator.async_set_updated_data(cached["data"])
+        # Pas de fetch_ok=False ici : aucun fetch n'a encore échoué. Le poser
+        # ferait apparaître le bandeau « synchronisation en échec » à chaque
+        # démarrage de HA dont le cache a plus de deux heures, pendant tout le
+        # temps du premier refresh.
+        coordinator.async_set_updated_data({
+            **cached["data"],
+            "last_success": state["last_success"],
+        })
 
     async_add_entities([
         MediathequeEmpruntsTotal(coordinator, entry),
@@ -100,7 +164,44 @@ async def async_setup_entry(
     )
 
 
-class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
+class _MediathequeBase(CoordinatorEntity, SensorEntity):
+    """Base commune : expose la fraîcheur des données à la carte."""
+
+    _username: str
+
+    def _freshness(self) -> dict:
+        """Fraîcheur des données, exposée sur tous les sensors d'emprunts.
+
+        Sans ça, la carte ne peut pas distinguer des données fraîches de
+        données de cache vieilles de plusieurs jours (le coordinator considère
+        un repli sur le cache comme un succès, donc les entités restent
+        disponibles).
+        """
+        data = self.coordinator.data or {}
+        return {
+            "last_success": data.get("last_success"),
+            "fetch_ok": data.get("fetch_ok", True),
+            # card_id sur tous les sensors d'emprunts : la carte en a besoin pour
+            # le code-barres, y compris quand elle pointe un sensor filtré.
+            "card_id": self._username,
+            # Indispensable : sans horodatage qui bouge, deux échecs consécutifs
+            # produisent des attributs identiques, HA dédoublonne l'écriture
+            # d'état, la carte ne re-render pas et son bandeau de péremption
+            # n'apparaît jamais une fois le seuil franchi.
+            "last_error_at": data.get("last_error_at"),
+        }
+
+    @staticmethod
+    def _all_loans(data: dict) -> list[dict]:
+        return [
+            loan
+            for loans in (data.get("membres") or {}).values()
+            for loan in loans
+            if isinstance(loan, dict)
+        ]
+
+
+class MediathequeEmpruntsTotal(_MediathequeBase):
     """Total borrowings."""
 
     _attr_icon = "mdi:book-open-variant"
@@ -123,14 +224,14 @@ class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
         if not self.coordinator.data:
             return {}
         return {
-            "card_id": self._username,
             "compte": self.coordinator.data.get("compte", ""),
             "membres": self.coordinator.data.get("membres", {}),
             "total": self.coordinator.data.get("total", 0),
+            **self._freshness(),
         }
 
 
-class MediathequeEmpruntsSemaine(CoordinatorEntity, SensorEntity):
+class MediathequeEmpruntsSemaine(_MediathequeBase):
     """Books due within the next 7 days."""
 
     _attr_icon = "mdi:calendar-clock"
@@ -138,7 +239,8 @@ class MediathequeEmpruntsSemaine(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_due_week"
+        self._username = entry.data[CONF_USERNAME]
+        self._attr_unique_id = f"{DOMAIN}_{self._username}_due_week"
         self._attr_name = "Emprunts à rendre cette semaine"
 
     @property
@@ -151,17 +253,17 @@ class MediathequeEmpruntsSemaine(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        all_loans = [
-            loan
-            for loans in self.coordinator.data.get("membres", {}).values()
-            for loan in loans
+        all_loans = self._all_loans(self.coordinator.data)
+        due_loans = [
+            l
+            for l in all_loans
+            if l.get("days_left") is not None and 0 <= l["days_left"] <= 7
         ]
-        due_loans = [l for l in all_loans if 0 <= l["days_left"] <= 7]
         due_loans.sort(key=lambda l: l["days_left"])
-        return {"livres": due_loans}
+        return {"livres": due_loans, **self._freshness()}
 
 
-class MediathequeEmpruntsRetard(CoordinatorEntity, SensorEntity):
+class MediathequeEmpruntsRetard(_MediathequeBase):
     """Overdue books."""
 
     _attr_icon = "mdi:alert-circle"
@@ -169,7 +271,8 @@ class MediathequeEmpruntsRetard(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_overdue"
+        self._username = entry.data[CONF_USERNAME]
+        self._attr_unique_id = f"{DOMAIN}_{self._username}_overdue"
         self._attr_name = "Emprunts en retard"
 
     @property
@@ -182,14 +285,12 @@ class MediathequeEmpruntsRetard(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        all_loans = [
-            loan
-            for loans in self.coordinator.data.get("membres", {}).values()
-            for loan in loans
+        all_loans = self._all_loans(self.coordinator.data)
+        overdue_loans = [
+            l for l in all_loans if l.get("days_left") is not None and l["days_left"] < 0
         ]
-        overdue_loans = [l for l in all_loans if l["days_left"] < 0]
         overdue_loans.sort(key=lambda l: l["days_left"])
-        return {"livres": overdue_loans}
+        return {"livres": overdue_loans, **self._freshness()}
 
 
 class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
@@ -206,7 +307,7 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> date | None:
         if self.coordinator.data:
-            sub = self.coordinator.data.get("subscription", {})
+            sub = self.coordinator.data.get("subscription") or {}
             iso_date = sub.get("expiry_date")
             if iso_date:
                 try:
@@ -219,7 +320,7 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        sub = self.coordinator.data.get("subscription", {})
+        sub = self.coordinator.data.get("subscription") or {}
         return {
             "expiry_date_display": sub.get("expiry_date_display"),
             "days_left": sub.get("days_left"),

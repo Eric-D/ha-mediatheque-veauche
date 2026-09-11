@@ -11,6 +11,7 @@ import {
   type BadgeType,
   type CardMode,
   type DueAttributes,
+  type FreshnessAttributes,
   type HassEntityState,
   type HassLike,
   type Loan,
@@ -48,12 +49,7 @@ export class MediathequeCard extends LitElement {
     // Aucun early-return avant d'avoir renseigné les deux états : sinon
     // _totalEntityState reste vide au premier rendu (pas de card_id → pas de
     // bouton code-barres tant qu'un second tick n'est pas arrivé).
-    const states = value?.states;
-    if (!states || !this._config?.entity) return;
-    this._entityState = states[this._config.entity];
-    this._totalEntityState = this._config.total_entity
-      ? states[this._config.total_entity]
-      : undefined;
+    this._syncEntityStates();
   }
   public get hass(): HassLike | undefined {
     return this._hass;
@@ -77,14 +73,25 @@ export class MediathequeCard extends LitElement {
     // casser un dashboard sur un champ optionnel mal renseigné. On log les
     // anomalies dans la console pour que l'utilisateur puisse diagnostiquer.
     if (!config || typeof config !== 'object') {
+      // Seul cas réellement bloquant : sans objet, il n'y a rien à rendre.
+      mcLog('error', 'card', 'setConfig rejeté, config non-objet : %o', config);
       throw new Error('Configuration manquante ou invalide');
     }
-    // 'entity' absente ou d'un mauvais type = config réellement invalide → throw.
-    // 'entity' présente mais vide = état transitoire légitime (stub du sélecteur
-    // de cartes, éditeur ouvert avant sélection) → on tolère et on affiche un
-    // loader, sinon le tout premier rendu de l'aperçu est 'Erreur de configuration'.
-    if (config.entity === undefined || typeof config.entity !== 'string') {
-      throw new Error('Vous devez définir une entité (entity)');
+    // 'entity' absente, null ou vide = état transitoire légitime (stub du
+    // sélecteur de cartes, éditeur ouvert avant sélection, YAML « entity: »
+    // sans valeur qui parse en null). Lever ici substituerait la carte par
+    // 'Erreur de configuration' de façon définitive et sans aucune trace
+    // console. On tolère, on loggue, et _render() affiche un loader explicite.
+    let entity = '';
+    if (typeof config.entity === 'string') {
+      entity = config.entity;
+    } else if (config.entity !== undefined && config.entity !== null) {
+      mcLog(
+        'error',
+        'card',
+        "'entity' doit être une chaîne, reçu %o — carte en attente de configuration",
+        config.entity
+      );
     }
 
     let normalizedMode: CardMode | undefined;
@@ -119,15 +126,57 @@ export class MediathequeCard extends LitElement {
             ALL_BADGES.join(', ')
           );
         }
-        normalizedBadges = valid as BadgeType[];
+        // Un filtre vide masquerait la totalité des emprunts, ce qui est
+        // indiscernable de « aucun emprunt ». Vaut aussi pour « badges: [] »
+        // écrit à la main, pas seulement pour une liste devenue vide après
+        // validation.
+        if (valid.length === 0) {
+          mcLog('warn', 'card', 'Filtre de badges vide, filtre ignoré');
+        } else {
+          normalizedBadges = valid as BadgeType[];
+        }
       }
     }
 
+    const previous = this._config;
     this._config = {
       ...config,
+      entity,
       mode: normalizedMode,
       badges: normalizedBadges,
     };
+
+    // Changer d'entité invalide tout ce qui a été rendu jusqu'ici : sans ce
+    // reset, _render() renverrait _lastTemplate (les emprunts de l'ancienne
+    // entité) dès que la nouvelle est indisponible, indéfiniment.
+    if (
+      previous?.entity !== this._config.entity ||
+      previous?.total_entity !== this._config.total_entity
+    ) {
+      this._hasRendered = false;
+      this._lastTemplate = undefined;
+      this._renderedEntityState = undefined;
+      this._renderedTotalState = undefined;
+      this._retry.reset();
+    }
+    // Les états sont résolus dans le setter hass ; sans ce rappel, une nouvelle
+    // entité n'est prise en compte qu'au prochain push de hass.
+    this._syncEntityStates();
+  }
+
+  /** Résout les états suivis à partir de la config et du hass courants. */
+  private _syncEntityStates(): void {
+    const states = this._hass?.states;
+    if (!states || !this._config?.entity) {
+      // Sans ça, vider l'entité laisse les états de la précédente en place.
+      this._entityState = undefined;
+      this._totalEntityState = undefined;
+      return;
+    }
+    this._entityState = states[this._config.entity];
+    this._totalEntityState = this._config.total_entity
+      ? states[this._config.total_entity]
+      : undefined;
   }
 
   public static getStubConfig(
@@ -171,6 +220,10 @@ export class MediathequeCard extends LitElement {
 
   public override connectedCallback(): void {
     super.connectedCallback();
+    // Hors d'ici, le compteur n'est remis à zéro que par un rendu de données
+    // réussi : un élément re-connecté (déplacement entre sections, re-render de
+    // vue) repartirait donc avec un quota déjà épuisé.
+    this._retry.reset();
     // Force le premier render synchrone : HA peut checker la carte juste
     // après l'insertion dans le DOM, avant que la microtask Lit ne fire le
     // render. Si elle voit le shadow root vide, elle substitue par
@@ -290,8 +343,29 @@ export class MediathequeCard extends LitElement {
       );
       this._retry.schedule();
       if (this._hasRendered) return this._lastTemplate ?? this._renderLoader(title);
-      this._lastTemplate = this._renderLoader(title, 'En attente des données…');
+      // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
+      // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
+      this._lastTemplate = this._renderLoader(
+        title,
+        this._retry.exhausted
+          ? `Données indisponibles pour ${entityId}`
+          : 'En attente des données…'
+      );
       return this._lastTemplate;
+    }
+
+    // Une entité qui ne porte ni 'membres' ni 'livres' n'est pas une entité de
+    // cette intégration. Sans ce garde-fou, la carte affiche « Aucun emprunt en
+    // cours » avec un badge à 0, ce qui ressemble à un état nominal.
+    const attributes = state.attributes ?? {};
+    if (!('membres' in attributes) && !('livres' in attributes)) {
+      mcLog(
+        'error',
+        'card',
+        '%s ne porte ni « membres » ni « livres » : ce n\'est pas un capteur de cette intégration',
+        entityId
+      );
+      return this._renderLoader(title, `${entityId} n'est pas un capteur Médiathèque`);
     }
 
     this._retry.reset();
@@ -326,7 +400,40 @@ export class MediathequeCard extends LitElement {
     `;
   }
 
+  private _renderStaleNotice(attrs: FreshnessAttributes): TemplateResult | typeof nothing {
+    // fetch_ok=false signifie que le coordinator est retombé sur son cache : les
+    // entités restent disponibles et les données paraissent fraîches alors que
+    // days_left est figé à la date du dernier scrape.
+    if (attrs.fetch_ok !== false) return nothing;
+
+    const lastSuccess = attrs.last_success ? new Date(attrs.last_success) : null;
+    const stamp = lastSuccess?.getTime();
+    // Ce qui rend days_left faux n'est pas l'écoulement de N heures, c'est le
+    // passage de minuit : tant que la dernière synchro date d'aujourd'hui, les
+    // délais affichés restent justes même si le dernier fetch a échoué.
+    if (stamp !== undefined && !Number.isNaN(stamp)) {
+      if (lastSuccess!.toDateString() === new Date().toDateString()) return nothing;
+    }
+
+    const since =
+      stamp === undefined || Number.isNaN(stamp)
+        ? 'date inconnue'
+        : lastSuccess!.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    return html`
+      <div class="mc-stale" role="status">
+        <span>⚠</span>
+        <span>Synchronisation en échec — données du ${since}, délais non à jour</span>
+      </div>
+    `;
+  }
+
   private _matchesBadgeFilter(loan: Loan, enabled: BadgeType[]): boolean {
+    // 'not_extendable' n'est jamais renvoyé par getDaysChip() (qui ne classe
+    // que par délai) : il se lit sur le prêt lui-même. Sans ce cas particulier,
+    // filtrer sur ce badge ne remontait jamais rien.
+    if (enabled.includes('not_extendable') && (loan.extended || loan.extend_disabled)) {
+      return true;
+    }
     return enabled.includes(getDaysChip(loan.days_left).type);
   }
 
@@ -347,22 +454,23 @@ export class MediathequeCard extends LitElement {
       ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
       : livres;
 
-    const totalState =
-      this._totalEntityState ??
-      (this._hass?.states[this._config!.entity.replace('_due_week', '_total')]);
+    const totalState = this._totalEntityState;
+    // '||' et non '??' : un card_id vide doit continuer la chaîne de repli,
+    // sinon le bouton code-barres disparaît au lieu de chercher plus loin.
     const cardId =
-      (attrs.card_id ??
-        (totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
-        this._config?.card_id ??
-        '') || '';
+      attrs.card_id ||
+      (totalState?.attributes as { card_id?: string } | undefined)?.card_id ||
+      this._config?.card_id ||
+      '';
     const badgeText = `${filtered.length}`;
     const highlight = filtered.length > 0;
 
-    const sorted = [...filtered].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+    const sorted = [...filtered].sort((a, b) => (a.days_left ?? Number.MAX_SAFE_INTEGER) - (b.days_left ?? Number.MAX_SAFE_INTEGER));
 
     return html`
       <ha-card>
         ${this._renderHeader(title, badgeText, highlight, cardId)}
+        ${this._renderStaleNotice(attrs)}
         ${sorted.length === 0
           ? html`<div class="empty-state">Aucun livre à rendre</div>`
           : html`<div class="book-grid">
@@ -376,12 +484,15 @@ export class MediathequeCard extends LitElement {
   private _renderTile(loan: Loan): TemplateResult {
     const chip = getDaysChip(loan.days_left);
     const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
+    const days = loan.days_left;
     const tileLabel =
-      loan.days_left < 0
-        ? `${Math.abs(loan.days_left)}j`
-        : loan.days_left === 0
-          ? '!'
-          : `${loan.days_left}j`;
+      days === null || days === undefined
+        ? '?'
+        : days < 0
+          ? `${Math.abs(days)}j`
+          : days === 0
+            ? '!'
+            : `${days}j`;
 
     return html`
       <button
@@ -453,13 +564,14 @@ export class MediathequeCard extends LitElement {
     return html`
       <ha-card>
         ${this._renderHeader(title, badgeText, highlight, cardId)}
+        ${this._renderStaleNotice(attrs)}
         ${sortedMembers.length === 0
           ? html`<div class="empty-state">Aucun emprunt en cours</div>`
           : sortedMembers.map((member) => {
               const loans = filteredMembres[member];
               if (!loans) return nothing;
               const icon = member === compte ? '👤' : '👦';
-              const sorted = [...loans].sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0));
+              const sorted = [...loans].sort((a, b) => (a.days_left ?? Number.MAX_SAFE_INTEGER) - (b.days_left ?? Number.MAX_SAFE_INTEGER));
               return html`
                 <div class="member-section">
                   <div class="member-header">
@@ -665,7 +777,9 @@ logBanner();
 // Force HA à charger ses définitions de custom elements (ha-card, ha-form…).
 // Sans cet appel, sur un cold load (cache vide), notre carte est enregistrée
 // avant que HA ait défini ha-card / ha-form, ce qui produit un rendu cassé.
-void window.loadCardHelpers?.();
+void window.loadCardHelpers?.().catch((e: unknown) => {
+  mcLog('warn', 'card', 'loadCardHelpers() a échoué : %o', e);
+});
 
 // Garde idempotente : sur WebView Android, le script peut être ré-évalué
 // (sleep/wake, retour du background). Sans cette garde, customElements.define

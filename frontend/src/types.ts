@@ -4,7 +4,8 @@ export type BadgeType =
   | 'urgent'
   | 'soon'
   | 'ok'
-  | 'not_extendable';
+  | 'not_extendable'
+  | 'unknown';
 
 export const ALL_BADGES: readonly BadgeType[] = [
   'overdue',
@@ -13,6 +14,7 @@ export const ALL_BADGES: readonly BadgeType[] = [
   'soon',
   'ok',
   'not_extendable',
+  'unknown',
 ] as const;
 
 export type CardMode = 'list' | 'covers';
@@ -38,31 +40,46 @@ export interface MediathequeConfig {
   card_id?: string;
 }
 
+// Les champs optionnels arrivent en `null` depuis Python, pas en `undefined` :
+// les typer `?: string` inviterait un `=== undefined` ou un `??` silencieusement
+// faux.
 export interface Loan {
   titre: string;
-  book_id?: string;
-  due_date?: string;
+  book_id?: string | null;
+  due_date?: string | null;
   due_date_display: string;
-  days_left: number;
+  // null = date d'échéance illisible côté scraper. Surtout pas 0, qui veut
+  // dire « à rendre aujourd'hui ».
+  days_left: number | null;
   can_extend?: boolean;
   extended?: boolean;
   extend_disabled?: boolean;
-  extend_url?: string;
-  cover_url?: string;
-  isbn?: string;
-  emprunteur?: string;
+  extend_url?: string | null;
+  cover_url?: string | null;
+  isbn?: string | null;
+  emprunteur?: string | null;
 }
 
 export interface MembersMap {
   [member: string]: Loan[];
 }
 
-export interface DueAttributes {
+// Fraîcheur des données, exposée par tous les sensors d'emprunts.
+export interface FreshnessAttributes {
+  last_success?: string | null;
+  fetch_ok?: boolean;
+  // Jamais lu par la carte : son seul rôle est de faire varier les attributs
+  // à chaque échec, sans quoi HA dédoublonne l'écriture d'état et la carte ne
+  // re-render pas.
+  last_error_at?: string | null;
+}
+
+export interface DueAttributes extends FreshnessAttributes {
   livres?: Loan[];
   card_id?: string;
 }
 
-export interface AllAttributes {
+export interface AllAttributes extends FreshnessAttributes {
   membres?: MembersMap;
   compte?: string;
   card_id?: string;
