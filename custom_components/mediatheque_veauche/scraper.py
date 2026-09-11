@@ -15,6 +15,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 CSRF_PATTERN = re.compile(r'^[a-f0-9]{32}$')
+# Une requête par livre, en série : un timeout trop long fait déborder le cycle
+# de poll entier quand le site rame.
+BOOK_TIMEOUT = 10
+DEFAULT_ACCOUNT_NAME = "Compte principal"
 MONTHS_FR = [
     "", "janvier", "février", "mars", "avril", "mai", "juin",
     "juillet", "août", "septembre", "octobre", "novembre", "décembre",
@@ -34,6 +38,9 @@ class MediathequeVeaucheClient:
         self._session: requests.Session | None = None
         self._lastname: str = ""
         self._borrowings_html: str = ""
+        # Les détails d'un livre (couverture, ISBN) ne changent jamais : on les
+        # mémorise pour ne pas refaire une requête HTTP par livre à chaque cycle.
+        self._book_details_cache: dict[str, dict] = {}
 
     def login(self) -> None:
         """Authenticate against the Joomla site."""
@@ -122,11 +129,14 @@ class MediathequeVeaucheClient:
 
     def _get_book_details(self, book_id: str) -> dict:
         """Fetch the cover image URL and ISBN for a book."""
+        cached = self._book_details_cache.get(book_id)
+        if cached is not None:
+            return cached
         result = {"cover_url": None, "isbn": None}
         if not self._session:
             return result
         try:
-            resp = self._session.get(f"{BOOK_URL}{book_id}", timeout=15)
+            resp = self._session.get(f"{BOOK_URL}{book_id}", timeout=BOOK_TIMEOUT)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "html.parser")
             img = soup.find("img", src=re.compile(r"/images/covers/"))
@@ -137,6 +147,9 @@ class MediathequeVeaucheClient:
             isbn_input = soup.find("input", id="BW_id_isbn")
             if isbn_input and isbn_input.get("value"):
                 result["isbn"] = isbn_input["value"].strip()
+            # Mémorisé seulement en cas de succès : un échec réseau ne doit pas
+            # figer une couverture manquante pour toute la vie du process.
+            self._book_details_cache[book_id] = result
         except Exception as exc:
             _LOGGER.warning("Impossible de récupérer les détails du livre %s: %s", book_id, exc)
         return result
@@ -160,13 +173,18 @@ class MediathequeVeaucheClient:
             return iso_date
 
     @staticmethod
-    def _days_until(iso_date: str) -> int:
-        """Calculate days until the given ISO date. Negative if overdue."""
+    def _days_until(iso_date: str) -> int | None:
+        """Calculate days until the given ISO date. Negative if overdue.
+
+        Renvoie None si la date est illisible : 0 signifierait « à rendre
+        aujourd'hui », c'est-à-dire une information fausse affichée en rouge.
+        """
         try:
             due = datetime.strptime(iso_date, "%Y-%m-%d").date()
             return (due - date.today()).days
         except ValueError:
-            return 0
+            _LOGGER.warning("Date d'échéance illisible: %r", iso_date)
+            return None
 
     def _parse_loan_row(
         self, row, has_emprunteur: bool, default_emprunteur: str
@@ -199,7 +217,7 @@ class MediathequeVeaucheClient:
         if has_emprunteur:
             emp_cell = cells[idx]
             idx += 1
-            emprunteur = self._extract_firstname(emp_cell.get_text(strip=True))
+            emprunteur = self._extract_firstname(emp_cell.get_text(strip=True)) or default_emprunteur
         else:
             emprunteur = default_emprunteur
 
@@ -227,14 +245,21 @@ class MediathequeVeaucheClient:
                 elif "btn-warning" in classes or link_text == "désactivé":
                     extend_disabled = True
                 else:
-                    can_extend = True
-                    href = extend_link.get("href", "")
-                    if href.startswith("/"):
-                        extend_url = f"{BASE_URL}{href}"
-                    elif href.startswith("http"):
-                        extend_url = href
+                    href = extend_link.get("href", "").strip()
+                    # Un <a> sans href donnerait une URL bidon (BASE_URL + '/')
+                    # sur laquelle le bouton « Prolonger » appellerait le service.
+                    if not href:
+                        _LOGGER.warning(
+                            "Lien de prolongation sans href pour %r, ignoré", titre
+                        )
                     else:
-                        extend_url = f"{BASE_URL}/{href}"
+                        can_extend = True
+                        if href.startswith("http"):
+                            extend_url = href
+                        elif href.startswith("/"):
+                            extend_url = f"{BASE_URL}{href}"
+                        else:
+                            extend_url = f"{BASE_URL}/{href}"
 
         # Cover + ISBN
         details = self._get_book_details(book_id) if book_id else {}
@@ -265,6 +290,12 @@ class MediathequeVeaucheClient:
             h2 = profile_section.find("h2")
             if h2:
                 compte = self._extract_firstname(h2.get_text(strip=True))
+        if not compte:
+            _LOGGER.warning(
+                "Nom du titulaire introuvable sur la page profil, repli sur %r",
+                DEFAULT_ACCOUNT_NAME,
+            )
+            compte = DEFAULT_ACCOUNT_NAME
 
         membres: dict[str, list[dict]] = {}
 
@@ -372,10 +403,14 @@ class MediathequeVeaucheClient:
             loan for loans in data["membres"].values() for loan in loans
         ]
         data["due_this_week"] = sum(
-            1 for loan in all_loans if 0 <= loan["days_left"] <= 7
+            1
+            for loan in all_loans
+            if loan.get("days_left") is not None and 0 <= loan["days_left"] <= 7
         )
         data["overdue"] = sum(
-            1 for loan in all_loans if loan["days_left"] < 0
+            1
+            for loan in all_loans
+            if loan.get("days_left") is not None and loan["days_left"] < 0
         )
 
         # Fetch subscription info

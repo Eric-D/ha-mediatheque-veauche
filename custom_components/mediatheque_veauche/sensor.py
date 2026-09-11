@@ -28,6 +28,26 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 
 
+def _is_valid_payload(data: object) -> bool:
+    """Vérifie qu'un payload (souvent relu du cache disque) a la forme attendue.
+
+    Le Store versionne le conteneur, pas le contenu : un cache écrit par une
+    version antérieure peut manquer de clés et faire lever les sensors à chaque
+    écriture d'état. Mieux vaut l'ignorer que casser l'intégration.
+    """
+    if not isinstance(data, dict):
+        return False
+    membres = data.get("membres")
+    if not isinstance(membres, dict):
+        return False
+    for loans in membres.values():
+        if not isinstance(loans, list):
+            return False
+        if not all(isinstance(loan, dict) for loan in loans):
+            return False
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -44,6 +64,12 @@ async def async_setup_entry(
 
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
     cached = await store.async_load() or {}
+    if cached.get("data") is not None and not _is_valid_payload(cached["data"]):
+        _LOGGER.warning(
+            "Cache disque au format inattendu (écrit par une version antérieure ?), ignoré"
+        )
+        cached.pop("data", None)
+        cached.pop("last_success", None)
     state = {"last_success": cached.get("last_success")}
 
     async def async_update_data() -> dict:
@@ -51,6 +77,8 @@ async def async_setup_entry(
         try:
             data = await hass.async_add_executor_job(client.fetch_all)
             state["last_success"] = dt_util.utcnow().isoformat()
+            data["last_success"] = state["last_success"]
+            data["fetch_ok"] = True
             cached["data"] = data
             cached["last_success"] = state["last_success"]
             await store.async_save(cached)
@@ -68,7 +96,16 @@ async def async_setup_entry(
                     "Utilisation des données en cache (dernier fetch: %s)",
                     state["last_success"],
                 )
-                return cached["data"]
+                # Copie marquée : sans horodatage d'échec, le payload serait
+                # identique au cycle précédent, HA dédoublonnerait l'écriture
+                # d'état et la carte n'aurait aucun moyen de savoir que les
+                # données affichées sont périmées.
+                return {
+                    **cached["data"],
+                    "last_success": state["last_success"],
+                    "fetch_ok": False,
+                    "last_error_at": dt_util.utcnow().isoformat(),
+                }
             raise UpdateFailed(f"Error fetching library data: {err}") from err
 
     coordinator = DataUpdateCoordinator(
@@ -84,7 +121,11 @@ async def async_setup_entry(
 
     # Pre-fill coordinator with cached data so sensors have values immediately
     if cached.get("data"):
-        coordinator.async_set_updated_data(cached["data"])
+        coordinator.async_set_updated_data({
+            **cached["data"],
+            "last_success": state["last_success"],
+            "fetch_ok": False,
+        })
 
     async_add_entities([
         MediathequeEmpruntsTotal(coordinator, entry),
@@ -100,7 +141,34 @@ async def async_setup_entry(
     )
 
 
-class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
+class _MediathequeBase(CoordinatorEntity, SensorEntity):
+    """Base commune : expose la fraîcheur des données à la carte."""
+
+    def _freshness(self) -> dict:
+        """Fraîcheur des données, exposée sur tous les sensors d'emprunts.
+
+        Sans ça, la carte ne peut pas distinguer des données fraîches de
+        données de cache vieilles de plusieurs jours (le coordinator considère
+        un repli sur le cache comme un succès, donc les entités restent
+        disponibles).
+        """
+        data = self.coordinator.data or {}
+        return {
+            "last_success": data.get("last_success"),
+            "fetch_ok": data.get("fetch_ok", True),
+        }
+
+    @staticmethod
+    def _all_loans(data: dict) -> list[dict]:
+        return [
+            loan
+            for loans in (data.get("membres") or {}).values()
+            for loan in loans
+            if isinstance(loan, dict)
+        ]
+
+
+class MediathequeEmpruntsTotal(_MediathequeBase):
     """Total borrowings."""
 
     _attr_icon = "mdi:book-open-variant"
@@ -127,10 +195,11 @@ class MediathequeEmpruntsTotal(CoordinatorEntity, SensorEntity):
             "compte": self.coordinator.data.get("compte", ""),
             "membres": self.coordinator.data.get("membres", {}),
             "total": self.coordinator.data.get("total", 0),
+            **self._freshness(),
         }
 
 
-class MediathequeEmpruntsSemaine(CoordinatorEntity, SensorEntity):
+class MediathequeEmpruntsSemaine(_MediathequeBase):
     """Books due within the next 7 days."""
 
     _attr_icon = "mdi:calendar-clock"
@@ -151,17 +220,17 @@ class MediathequeEmpruntsSemaine(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        all_loans = [
-            loan
-            for loans in self.coordinator.data.get("membres", {}).values()
-            for loan in loans
+        all_loans = self._all_loans(self.coordinator.data)
+        due_loans = [
+            l
+            for l in all_loans
+            if l.get("days_left") is not None and 0 <= l["days_left"] <= 7
         ]
-        due_loans = [l for l in all_loans if 0 <= l["days_left"] <= 7]
         due_loans.sort(key=lambda l: l["days_left"])
-        return {"livres": due_loans}
+        return {"livres": due_loans, **self._freshness()}
 
 
-class MediathequeEmpruntsRetard(CoordinatorEntity, SensorEntity):
+class MediathequeEmpruntsRetard(_MediathequeBase):
     """Overdue books."""
 
     _attr_icon = "mdi:alert-circle"
@@ -182,14 +251,12 @@ class MediathequeEmpruntsRetard(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict:
         if not self.coordinator.data:
             return {}
-        all_loans = [
-            loan
-            for loans in self.coordinator.data.get("membres", {}).values()
-            for loan in loans
+        all_loans = self._all_loans(self.coordinator.data)
+        overdue_loans = [
+            l for l in all_loans if l.get("days_left") is not None and l["days_left"] < 0
         ]
-        overdue_loans = [l for l in all_loans if l["days_left"] < 0]
         overdue_loans.sort(key=lambda l: l["days_left"])
-        return {"livres": overdue_loans}
+        return {"livres": overdue_loans, **self._freshness()}
 
 
 class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):

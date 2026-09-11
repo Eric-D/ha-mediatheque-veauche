@@ -4,7 +4,8 @@ export type BadgeType =
   | 'urgent'
   | 'soon'
   | 'ok'
-  | 'not_extendable';
+  | 'not_extendable'
+  | 'unknown';
 
 export const ALL_BADGES: readonly BadgeType[] = [
   'overdue',
@@ -13,6 +14,7 @@ export const ALL_BADGES: readonly BadgeType[] = [
   'soon',
   'ok',
   'not_extendable',
+  'unknown',
 ] as const;
 
 export type CardMode = 'list' | 'covers';
@@ -43,7 +45,9 @@ export interface Loan {
   book_id?: string;
   due_date?: string;
   due_date_display: string;
-  days_left: number;
+  // null = date d'échéance illisible côté scraper. Surtout pas 0, qui veut
+  // dire « à rendre aujourd'hui ».
+  days_left: number | null;
   can_extend?: boolean;
   extended?: boolean;
   extend_disabled?: boolean;
@@ -57,12 +61,18 @@ export interface MembersMap {
   [member: string]: Loan[];
 }
 
-export interface DueAttributes {
+// Fraîcheur des données, exposée par tous les sensors d'emprunts.
+export interface FreshnessAttributes {
+  last_success?: string | null;
+  fetch_ok?: boolean;
+}
+
+export interface DueAttributes extends FreshnessAttributes {
   livres?: Loan[];
   card_id?: string;
 }
 
-export interface AllAttributes {
+export interface AllAttributes extends FreshnessAttributes {
   membres?: MembersMap;
   compte?: string;
   card_id?: string;

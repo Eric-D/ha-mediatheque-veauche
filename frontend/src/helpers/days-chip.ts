@@ -1,6 +1,16 @@
 import type { DaysChip } from '../types.js';
 
-export function getDaysChip(daysLeft: number): DaysChip {
+export function getDaysChip(daysLeft: number | null | undefined): DaysChip {
+  // Sans cette garde, un prêt sans days_left tombait dans la branche finale et
+  // affichait « ✓ undefinedj restants ».
+  if (typeof daysLeft !== 'number' || !Number.isFinite(daysLeft)) {
+    return {
+      type: 'unknown',
+      text: '? Date inconnue',
+      color: '#37474f',
+      bg: '#cfd8dc',
+    };
+  }
   if (daysLeft < 0) {
     return {
       type: 'overdue',

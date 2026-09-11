@@ -80,6 +80,7 @@ Par défaut, tous les livres sont affichés. Si vous configurez `badges`, seuls 
 | `soon`           | Retour proche                                  | 4 à 7          | Jaune     |
 | `ok`             | Pas de retour imminent                         | > 7            | Vert      |
 | `not_extendable` | Emprunt déjà prolongé (non prolongeable)       | —              | Violet    |
+| `unknown`        | Date d'échéance illisible sur le site source   | —              | Gris      |
 
 Exemple pour n'afficher que les livres à rendre dans la semaine :
 

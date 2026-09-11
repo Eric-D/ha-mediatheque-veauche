@@ -47,11 +47,21 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     # Card JS — icons are served via brand/ directory (brands proxy API)
     card_path = Path(__file__).parent / "www" / "mediatheque-card.js"
-    if card_path.is_file():
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL, str(card_path), False)]
+    if not card_path.is_file():
+        # Sans ce garde-fou on injecterait un <script> vers une URL en 404 :
+        # la carte ne serait jamais définie et HA afficherait une carte en
+        # erreur sans que rien n'apparaisse dans les logs.
+        _LOGGER.error(
+            "Fichier de la carte introuvable (%s) — la carte Lovelace ne sera "
+            "pas disponible. Réinstallez l'intégration via HACS.",
+            card_path,
         )
+        hass.data[DOMAIN + "_static_registered"] = True
+        return True
 
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(card_path), False)]
+    )
     add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
     hass.data[DOMAIN + "_static_registered"] = True
 

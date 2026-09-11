@@ -22,6 +22,11 @@ export class RetryScheduler {
     }, delay);
   }
 
+  /** Quota épuisé : plus aucun retry ne sera programmé jusqu'au prochain reset(). */
+  get exhausted(): boolean {
+    return this.count > MAX_RETRIES;
+  }
+
   reset(): void {
     this.count = 0;
     this.cancel();

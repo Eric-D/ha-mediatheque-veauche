@@ -8,7 +8,8 @@ const EDITOR_BADGE_LABELS: Record<string, string> = {
   urgent: '1 à 3 jours restants',
   soon: '4 à 7 jours restants',
   ok: 'Plus de 7 jours',
-  not_extendable: 'Déjà prolongé',
+  not_extendable: 'Non prolongeable',
+  unknown: 'Date illisible',
 };
 
 const EDITOR_LABELS: Record<string, string> = {
@@ -98,6 +99,13 @@ export class MediathequeCardEditor extends LitElement {
   private _valueChanged(ev: ValueChangedEvent): void {
     const next = { ...ev.detail.value } as Record<string, unknown>;
     for (const key of Object.keys(next)) {
+      // 'entity' n'est jamais supprimée : ha-form émet undefined quand on vide
+      // le champ, et une config sans clé 'entity' cassait définitivement la
+      // carte (setConfig levait, HA la remplaçait par sa carte d'erreur).
+      if (key === 'entity') {
+        if (typeof next[key] !== 'string') next[key] = '';
+        continue;
+      }
       const v = next[key];
       if (v === '' || v === undefined || v === null) delete next[key];
       if (Array.isArray(v) && v.length === 0) delete next[key];

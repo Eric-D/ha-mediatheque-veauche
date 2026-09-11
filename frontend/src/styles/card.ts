@@ -123,6 +123,18 @@ export const cardStyles = css`
     text-align: center;
     color: var(--secondary-text-color);
   }
+  .mc-stale {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 16px 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--warning-color, #ffa726);
+    color: #21201f;
+    font-size: 0.8em;
+    line-height: 1.3;
+  }
   .book-grid {
     display: flex;
     flex-wrap: wrap;
