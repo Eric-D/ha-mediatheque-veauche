@@ -831,6 +831,69 @@ if (!customElements.get('mediatheque-card')) {
   mcLog('info', 'card', 'module déjà enregistré, ce chargement est ignoré');
 }
 
+/**
+ * Répare les cartes d'erreur laissées orphelines par le rattrapage de HA.
+ *
+ * Quand HA construit la vue avant que ce module ne soit évalué, il fabrique une
+ * carte « Custom element doesn't exist: mediatheque-card. », puis arme
+ * customElements.whenDefined(tag) pour émettre 'll-rebuild' et la reconstruire.
+ * Mais whenDefined se résout dans une microtask : si notre définition arrive
+ * juste après la création de la carte d'erreur, l'événement part avant que
+ * hui-card n'ait attaché son écouteur, et se perd. Le setTimeout de 2 s de HA
+ * révèle alors l'erreur définitivement.
+ *
+ * Paradoxe qui rendait le bug illisible : c'est le chargement le PLUS rapide
+ * qui casse, parce que notre module gagne la course contre le rattrapage au
+ * lieu de la perdre contre la construction de la vue.
+ *
+ * On réémet donc 'll-rebuild' nous-mêmes, plus tard, quand l'écouteur est en
+ * place. Ciblé sur les seules cartes d'erreur qui nomment notre tag : une fois
+ * reconstruites elles disparaissent, donc aucune boucle possible.
+ */
+function repairOrphanErrorCards(): number {
+  let repaired = 0;
+  const walk = (node: Element): void => {
+    if (node.localName === 'hui-error-card') {
+      const holder = node as unknown as {
+        _config?: { message?: string };
+        config?: { message?: string };
+      };
+      const message = (holder._config ?? holder.config)?.message ?? '';
+      if (message.includes('mediatheque-card')) {
+        node.dispatchEvent(new CustomEvent('ll-rebuild', { bubbles: true, composed: true }));
+        repaired++;
+      }
+      return;
+    }
+    for (const child of [...(node.shadowRoot?.children ?? []), ...node.children]) {
+      walk(child as Element);
+    }
+  };
+  if (document.body) walk(document.body);
+  return repaired;
+}
+
+// Plusieurs passes avant le seuil de 2 s à partir duquel HA rend l'erreur
+// visible : la vue peut aussi se construire juste après notre définition.
+for (const delay of [0, 150, 600, 1500]) {
+  window.setTimeout(() => {
+    try {
+      const repaired = repairOrphanErrorCards();
+      if (repaired > 0) {
+        mcLog(
+          'warn',
+          'card',
+          '%d carte(s) d\'erreur reconstruite(s) après %dms — la vue a été bâtie avant l\'enregistrement de l\'élément',
+          repaired,
+          delay
+        );
+      }
+    } catch (e) {
+      mcLog('error', 'card', 'réparation des cartes d\'erreur impossible : %o', e);
+    }
+  }, delay);
+}
+
 window.customCards = window.customCards ?? [];
 if (!window.customCards.some((c) => c.type === 'mediatheque-card')) {
   window.customCards.push({
