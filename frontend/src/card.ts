@@ -60,6 +60,12 @@ export class MediathequeCard extends LitElement {
   @state() private _confirmExtend: { loan: Loan } | null = null;
   @state() private _barcodeOpen = false;
 
+  /** Sert uniquement à tracer le cycle de vie : le chemin nominal étant
+   *  silencieux, « aucun log » ne permettait pas de distinguer « HA n'a jamais
+   *  utilisé notre élément » de « tout s'est bien passé ». */
+  private static _instances = 0;
+  private readonly _id = ++MediathequeCard._instances;
+
   private _hass?: HassLike;
   private _entityState?: HassEntityState;
   private _totalEntityState?: HassEntityState;
@@ -137,6 +143,16 @@ export class MediathequeCard extends LitElement {
         }
       }
     }
+
+    mcLog(
+      'info',
+      'card',
+      '#%d setConfig accepté (entity=%s, mode=%s) à t=%dms',
+      this._id,
+      entity || '(vide)',
+      normalizedMode ?? 'list',
+      Math.round(performance.now())
+    );
 
     const previous = this._config;
     this._config = {
@@ -255,6 +271,17 @@ export class MediathequeCard extends LitElement {
   }
 
   protected override updated(): void {
+    if (!this._firstUpdateLogged) {
+      this._firstUpdateLogged = true;
+      mcLog(
+        'info',
+        'card',
+        '#%d premier rendu effectué à t=%dms (données=%s)',
+        this._id,
+        Math.round(performance.now()),
+        this._hasRendered ? 'oui' : 'non, loader'
+      );
+    }
     this._renderedEntityState = this._entityState;
     this._renderedTotalState = this._totalEntityState;
     if (this._hasRendered) {
@@ -329,7 +356,13 @@ export class MediathequeCard extends LitElement {
     if (!entityId) {
       return this._renderLoader(title, 'Sélectionnez une entité');
     }
-    const state = this._hass.states[entityId];
+    const states = this._hass.states;
+    if (!states) {
+      mcLog('warn', 'card', 'hass.states absent, rendu du loader');
+      this._retry.schedule();
+      return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
+    }
+    const state = states[entityId];
 
     if (!state || state.state === 'unavailable' || state.state === 'unknown') {
       const reason = !state ? 'entity not found' : `state=${state.state}`;
@@ -383,6 +416,7 @@ export class MediathequeCard extends LitElement {
   }
 
   private _lastTemplate?: TemplateResult;
+  private _firstUpdateLogged = false;
 
   private _renderLoader(title: string, message = 'Chargement…'): TemplateResult {
     return html`
