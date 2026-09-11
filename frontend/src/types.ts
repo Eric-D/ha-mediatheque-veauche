@@ -68,6 +68,10 @@ export interface MembersMap {
 export interface FreshnessAttributes {
   last_success?: string | null;
   fetch_ok?: boolean;
+  // Jamais lu par la carte : son seul rôle est de faire varier les attributs
+  // à chaque échec, sans quoi HA dédoublonne l'écriture d'état et la carte ne
+  // re-render pas.
+  last_error_at?: string | null;
 }
 
 export interface DueAttributes extends FreshnessAttributes {

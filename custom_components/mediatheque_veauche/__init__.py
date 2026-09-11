@@ -115,6 +115,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     updated = _mark_loan_extended(coordinator.data, extend_url)
                     if updated is not None:
                         coordinator.async_set_updated_data(updated)
+                    else:
+                        _LOGGER.warning(
+                            "Prolongation réussie mais prêt introuvable dans les "
+                            "données du coordinator (%s) : la carte ne se mettra "
+                            "à jour qu'au prochain cycle",
+                            extend_url,
+                        )
                 return
             _LOGGER.error("Aucun client disponible pour la prolongation")
 

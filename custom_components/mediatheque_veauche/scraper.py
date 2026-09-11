@@ -406,6 +406,9 @@ class MediathequeVeaucheClient:
         # effectuée » et la carte bascule en « prolongé » sans que rien ne le
         # soit — exactement le genre d'échec silencieux qu'on traque.
         if "com_users" in resp.url and "login" in resp.url.lower():
+            # Session invalidée pour que la prochaine tentative relogue au lieu
+            # de rejouer l'échec à l'identique.
+            self._session = None
             raise AuthenticationError(
                 "Session expirée : la prolongation a été redirigée vers la page de connexion"
             )

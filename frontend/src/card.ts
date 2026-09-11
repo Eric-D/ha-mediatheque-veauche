@@ -167,7 +167,12 @@ export class MediathequeCard extends LitElement {
   /** Résout les états suivis à partir de la config et du hass courants. */
   private _syncEntityStates(): void {
     const states = this._hass?.states;
-    if (!states || !this._config?.entity) return;
+    if (!states || !this._config?.entity) {
+      // Sans ça, vider l'entité laisse les états de la précédente en place.
+      this._entityState = undefined;
+      this._totalEntityState = undefined;
+      return;
+    }
     this._entityState = states[this._config.entity];
     this._totalEntityState = this._config.total_entity
       ? states[this._config.total_entity]
@@ -450,11 +455,13 @@ export class MediathequeCard extends LitElement {
       : livres;
 
     const totalState = this._totalEntityState;
+    // '||' et non '??' : un card_id vide doit continuer la chaîne de repli,
+    // sinon le bouton code-barres disparaît au lieu de chercher plus loin.
     const cardId =
-      (attrs.card_id ??
-        (totalState?.attributes as { card_id?: string } | undefined)?.card_id ??
-        this._config?.card_id ??
-        '') || '';
+      attrs.card_id ||
+      (totalState?.attributes as { card_id?: string } | undefined)?.card_id ||
+      this._config?.card_id ||
+      '';
     const badgeText = `${filtered.length}`;
     const highlight = filtered.length > 0;
 
