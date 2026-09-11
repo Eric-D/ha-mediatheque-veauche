@@ -786,6 +786,19 @@ void window.loadCardHelpers?.().catch((e: unknown) => {
 // throw "already defined" → KO total.
 if (!customElements.get('mediatheque-card')) {
   customElements.define('mediatheque-card', MediathequeCard);
+  // Horodatage volontaire : si HA construit la vue avant cet instant, il
+  // remplace la carte par une carte d'erreur (« élément personnalisé
+  // introuvable », que l'interface titre « Erreur de configuration »). Comparer
+  // ce temps à celui du chargement de la vue est le seul moyen de constater la
+  // course depuis la console.
+  mcLog(
+    'info',
+    'card',
+    'élément enregistré à t=%dms après le début du chargement de la page',
+    Math.round(performance.now())
+  );
+} else {
+  mcLog('info', 'card', 'module déjà enregistré, ce chargement est ignoré');
 }
 
 window.customCards = window.customCards ?? [];

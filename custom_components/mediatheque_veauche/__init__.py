@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
 from .scraper import MediathequeVeaucheClient
@@ -23,6 +24,10 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 CARD_VERSION = "3.3.0"
 CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
+# Même URL exacte pour les deux mécanismes d'injection : un module ES n'est
+# évalué qu'une fois par URL, donc le double enregistrement est gratuit et ne
+# produit ni double téléchargement ni double bannière.
+CARD_RESOURCE_URL = f"{CARD_URL}?v={CARD_VERSION}"
 
 SERVICE_EXTEND_LOAN = "extend_loan"
 SERVICE_EXTEND_SCHEMA = vol.Schema({
@@ -50,6 +55,75 @@ def _mark_loan_extended(data: dict, extend_url: str) -> dict | None:
     return None
 
 
+def _get_lovelace_resources(hass: HomeAssistant):
+    """Récupère la collection de ressources Lovelace, ou None si indisponible.
+
+    La forme de hass.data['lovelace'] a changé selon les versions de HA
+    (dataclass LovelaceData récemment, dict auparavant), et en mode YAML la
+    collection n'est pas modifiable. On sonde défensivement : à défaut, on
+    retombe simplement sur add_extra_js_url.
+    """
+    lovelace = hass.data.get("lovelace")
+    if lovelace is None:
+        return None
+    resources = getattr(lovelace, "resources", None)
+    if resources is None and isinstance(lovelace, dict):
+        resources = lovelace.get("resources")
+    if resources is None:
+        return None
+    # Mode YAML : collection en lecture seule, les ressources sont déclarées
+    # dans configuration.yaml et c'est à l'utilisateur de le faire.
+    if getattr(resources, "store", None) is None:
+        return None
+    return resources
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
+    """Déclare la carte comme ressource Lovelace.
+
+    add_extra_js_url() injecte le script dans le document, indépendamment du
+    cycle de vie du panneau Lovelace : sur un chargement lent, HA peut
+    construire la vue avant que le module ne soit évalué, et remplace alors la
+    carte par « Erreur de configuration » (en réalité : élément personnalisé
+    introuvable). Les ressources Lovelace, elles, sont chargées par le panneau
+    lui-même. On enregistre donc les deux.
+    """
+    try:
+        resources = _get_lovelace_resources(hass)
+        if resources is None:
+            _LOGGER.debug(
+                "Ressources Lovelace indisponibles (mode YAML ?), "
+                "la carte reste injectée via add_extra_js_url"
+            )
+            return
+
+        if not resources.loaded:
+            await resources.async_get_info()
+
+        for item in resources.async_items():
+            url = item.get("url", "")
+            if url.split("?")[0] != CARD_URL:
+                continue
+            if url == CARD_RESOURCE_URL:
+                return
+            # Version changée : on met à jour plutôt que d'accumuler les
+            # doublons, sinon deux versions du module coexisteraient et la
+            # première enregistrée gagnerait.
+            await resources.async_update_item(item["id"], {"url": CARD_RESOURCE_URL})
+            _LOGGER.info("Ressource Lovelace mise à jour : %s", CARD_RESOURCE_URL)
+            return
+
+        await resources.async_create_item(
+            {"res_type": "module", "url": CARD_RESOURCE_URL}
+        )
+        _LOGGER.info("Ressource Lovelace enregistrée : %s", CARD_RESOURCE_URL)
+    except Exception:  # noqa: BLE001 - ne doit jamais empêcher le setup
+        _LOGGER.exception(
+            "Impossible d'enregistrer la ressource Lovelace ; la carte reste "
+            "injectée via add_extra_js_url"
+        )
+
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the integration via async_setup (runs once at HA start)."""
     if DOMAIN + "_static_registered" in hass.data:
@@ -73,7 +147,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(card_path), False)]
     )
-    add_extra_js_url(hass, f"{CARD_URL}?v={CARD_VERSION}")
+    add_extra_js_url(hass, CARD_RESOURCE_URL)
+
+    # Après le démarrage : le composant lovelace n'est pas encore configuré au
+    # moment où async_setup tourne.
+    async_at_started(hass, _async_register_lovelace_resource)
+
     hass.data[DOMAIN + "_static_registered"] = True
 
     return True
