@@ -91,9 +91,10 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
     try:
         resources = _get_lovelace_resources(hass)
         if resources is None:
-            _LOGGER.debug(
-                "Ressources Lovelace indisponibles (mode YAML ?), "
-                "la carte reste injectée via add_extra_js_url"
+            _LOGGER.warning(
+                "Collection de ressources Lovelace indisponible (mode YAML, ou "
+                "forme de hass.data['lovelace'] inattendue) : la carte reste "
+                "injectée via add_extra_js_url uniquement"
             )
             return
 
