@@ -1,9 +1,6 @@
 """Tests pour le scraper de la Médiathèque de Veauche."""
 from __future__ import annotations
 
-from datetime import date
-from unittest.mock import patch
-
 import pytest
 import requests
 from bs4 import BeautifulSoup
@@ -81,43 +78,6 @@ class TestFormatDateDisplay:
 
 
 # ---------------------------------------------------------------------------
-# _days_until (nécessite un mock de date.today)
-# ---------------------------------------------------------------------------
-
-class FakeDate(date):
-    """date dont today() renvoie toujours 2024-03-10."""
-    @classmethod
-    def today(cls):
-        return date(2024, 3, 10)
-
-
-class TestDaysUntil:
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_future_5_days(self):
-        assert MediathequeVeaucheClient._days_until("2024-03-15") == 5
-
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_today(self):
-        assert MediathequeVeaucheClient._days_until("2024-03-10") == 0
-
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_overdue(self):
-        assert MediathequeVeaucheClient._days_until("2024-03-07") == -3
-
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_far_future(self):
-        assert MediathequeVeaucheClient._days_until("2024-04-10") == 31
-
-    def test_invalid_date_returns_none(self):
-        """0 signifierait « à rendre aujourd'hui » : une information fausse,
-        affichée en rouge. Une date illisible doit rester inconnue."""
-        assert MediathequeVeaucheClient._days_until("invalid") is None
-
-    def test_empty_string_returns_none(self):
-        assert MediathequeVeaucheClient._days_until("") is None
-
-
-# ---------------------------------------------------------------------------
 # _extract_firstname
 # ---------------------------------------------------------------------------
 
@@ -161,7 +121,6 @@ def _make_row(cells_html: str) -> BeautifulSoup:
 
 
 class TestParseLoanRow:
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_basic_row_without_emprunteur(self, client):
         row = _make_row(
             '<td><a href="/index.php?view=Book&id=123">Le Petit Prince</a></td>'
@@ -175,13 +134,11 @@ class TestParseLoanRow:
         assert loan["titre"] == "Le Petit Prince"
         assert loan["book_id"] == "123"
         assert loan["due_date"] == "2024-03-15"
-        assert loan["days_left"] == 5
         assert loan["can_extend"] is True
         assert loan["extended"] is False
         assert loan["emprunteur"] == "Jean"
         assert loan["extend_url"].endswith("/extend/123")
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_row_with_emprunteur(self, client_with_lastname):
         row = _make_row(
             '<td><a href="/index.php?view=Book&id=456">Harry Potter</a></td>'
@@ -197,11 +154,10 @@ class TestParseLoanRow:
         assert loan is not None
         assert loan["titre"] == "Harry Potter"
         assert loan["emprunteur"] == "Lucas"
-        assert loan["days_left"] == -3
+        assert loan["due_date"] == "2024-03-07"
         assert loan["can_extend"] is False
         assert loan["extended"] is True
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_empty_emprunteur_is_not_attributed_to_account_holder(self, client):
         """Une cellule emprunteur vide ne doit pas gonfler le compte du titulaire."""
         row = _make_row(
@@ -215,7 +171,6 @@ class TestParseLoanRow:
         assert loan is not None
         assert loan["emprunteur"] == DEFAULT_MEMBER_NAME
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_extend_link_without_href_is_not_extendable(self, client):
         """Un <a> sans href produisait une URL bidon avec le bouton actif."""
         row = _make_row(
@@ -229,7 +184,7 @@ class TestParseLoanRow:
         assert loan["can_extend"] is False
         assert loan["extend_url"] is None
 
-    def test_unreadable_due_date_keeps_days_left_none(self, client):
+    def test_unreadable_due_date_is_left_as_is(self, client):
         row = _make_row(
             "<td>Un livre</td>"
             "<td>Veauche</td>"
@@ -238,7 +193,10 @@ class TestParseLoanRow:
         )
         loan = client._parse_loan_row(row, has_emprunteur=False, default_emprunteur="Test")
         assert loan is not None
-        assert loan["days_left"] is None
+        # Transmise telle quelle : c'est dates.days_until qui décidera qu'elle
+        # est illisible, et le dira une fois pour toutes.
+        assert loan["due_date"] == "pas une date"
+        assert "days_left" not in loan
 
     def test_empty_row_returns_none(self, client):
         row = _make_row("")
@@ -253,7 +211,6 @@ class TestParseLoanRow:
         row = _make_row("<td>A</td><td>B</td><td>C</td><td>D</td>")
         assert client._parse_loan_row(row, has_emprunteur=True, default_emprunteur="X") is None
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_no_extend_link(self, client):
         row = _make_row(
             '<td>Un livre</td>'
@@ -314,7 +271,6 @@ SAMPLE_BORROWINGS_HTML = """
 
 
 class TestFetchBorrowings:
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_parses_all_members(self, client_with_lastname):
         client_with_lastname._borrowings_html = SAMPLE_BORROWINGS_HTML
         data = client_with_lastname.fetch_borrowings()
@@ -324,7 +280,6 @@ class TestFetchBorrowings:
         assert "Jean" in data["membres"]
         assert "Lucas" in data["membres"]
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_user_loans(self, client_with_lastname):
         client_with_lastname._borrowings_html = SAMPLE_BORROWINGS_HTML
         data = client_with_lastname.fetch_borrowings()
@@ -336,7 +291,6 @@ class TestFetchBorrowings:
         assert jean_loans[1]["titre"] == "Tintin au Tibet"
         assert jean_loans[1]["extended"] is True
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_family_loans(self, client_with_lastname):
         client_with_lastname._borrowings_html = SAMPLE_BORROWINGS_HTML
         data = client_with_lastname.fetch_borrowings()
@@ -345,7 +299,7 @@ class TestFetchBorrowings:
         assert len(lucas_loans) == 1
         assert lucas_loans[0]["titre"] == "Le Chat du Rabbin"
         assert lucas_loans[0]["emprunteur"] == "Lucas"
-        assert lucas_loans[0]["days_left"] == 2
+        assert lucas_loans[0]["due_date"] == "2024-03-12"
 
     def test_empty_html(self, client):
         client._borrowings_html = "<html><body></body></html>"
@@ -355,15 +309,13 @@ class TestFetchBorrowings:
         assert data["total"] == 0
         assert data["membres"] == {}
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_due_dates_computed(self, client_with_lastname):
+    def test_due_dates_parsed(self, client_with_lastname):
         client_with_lastname._borrowings_html = SAMPLE_BORROWINGS_HTML
         data = client_with_lastname.fetch_borrowings()
 
         asterix = data["membres"]["Jean"][0]
         assert asterix["due_date"] == "2024-03-20"
         assert asterix["due_date_display"] == "20 mars 2024"
-        assert asterix["days_left"] == 10
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +341,6 @@ SAMPLE_SUBSCRIPTION_HTML = """
 
 
 class TestFetchSubscriptionExpiry:
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_finds_earliest_date(self, client):
         mock_resp = type("Response", (), {
             "text": SAMPLE_SUBSCRIPTION_HTML,
@@ -636,52 +587,6 @@ class TestAuthenticationErrors:
         with pytest.raises(AuthenticationError) as excinfo:
             client.extend_loan("https://mediatheque.veauche.fr/extend/1")
         assert not isinstance(excinfo.value, InvalidCredentialsError)
-
-
-# ---------------------------------------------------------------------------
-# fetch_all — consommateur du days_left à None
-# ---------------------------------------------------------------------------
-
-HTML_MIXED_DATES = """
-<html><body>
-<div id="profile_borrowed"><h2>DUPONT Jean</h2></div>
-<div id="user_borrow"><table><tbody>
-  <tr><td>En retard</td><td>Veauche</td>
-      <td><span class="badge">07-03-2024</span></td><td></td></tr>
-  <tr><td>Cette semaine</td><td>Veauche</td>
-      <td><span class="badge">15-03-2024</span></td><td></td></tr>
-  <tr><td>Date illisible</td><td>Veauche</td>
-      <td><span class="badge">jamais</span></td><td></td></tr>
-</tbody></table></div>
-</body></html>
-"""
-
-
-class TestFetchAll:
-    """Les compteurs doivent ignorer days_left=None sans lever.
-
-    C'est ici que vit la conséquence directe du passage de _days_until à None :
-    les gardes « is not None » dans due_this_week et overdue. Sans elles,
-    `0 <= None` lève un TypeError et tout le cycle de poll tombe.
-    """
-
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
-    def test_counts_ignore_unreadable_dates(self, client_with_lastname):
-        c = client_with_lastname
-        c._borrowings_html = HTML_MIXED_DATES
-        with patch.object(c, "login"), patch.object(
-            c, "_fetch_subscription_expiry", return_value={}
-        ):
-            data = c.fetch_all()
-
-        assert data["total"] == 3
-        assert data["overdue"] == 1
-        assert data["due_this_week"] == 1
-        days = sorted(
-            (loan["days_left"] for loans in data["membres"].values() for loan in loans),
-            key=lambda d: (d is None, d),
-        )
-        assert days == [-3, 5, None]
 
 
 # ---------------------------------------------------------------------------

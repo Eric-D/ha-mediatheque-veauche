@@ -24,8 +24,14 @@ select = [
     "G",     # flake8-logging-format
     "LOG",   # flake8-logging
     "RUF",   # règles propres à ruff
+    "DTZ",   # flake8-datetimez
 ]
 
+# DTZ est ce qui a révélé le décalage d'un jour de days_left : date.today()
+# suivait le fuseau du système hôte, pas celui configuré dans Home Assistant.
+# Les seules exemptions sont marquées `# noqa: DTZ007` et portent toutes sur
+# des dates civiles — une échéance est un jour, pas un instant.
+#
 # ASYNC mérite un mot : ASYNC210 attrape un appel HTTP bloquant dans une
 # coroutine, exactement le risque de cette intégration, dont tous les appels
 # requests doivent passer par hass.async_add_executor_job. Zéro constat

@@ -34,21 +34,30 @@ export function renderLoader({
   `;
 }
 
+// Un emprunt rendu ou pris entre-temps n'a pas d'urgence : on laisse passer
+// une demi-journée d'échecs avant d'encombrer la carte.
+const STALE_AFTER_MS = 12 * 60 * 60 * 1000;
+
 export function renderStaleNotice(
   attrs: FreshnessAttributes
 ): TemplateResult | typeof nothing {
   // fetch_ok=false signifie que le coordinator est retombé sur son cache : les
   // entités restent disponibles et les données paraissent fraîches alors que
-  // days_left est figé à la date du dernier scrape.
+  // la liste date du dernier scrape — un livre rendu depuis y figure encore.
+  // Les délais, eux, sont recalculés à chaque cycle côté intégration
+  // (`dates.with_days_left`) : ce sont les emprunts qui sont périmés, pas les
+  // décomptes.
   if (attrs.fetch_ok !== false) return nothing;
 
   const lastSuccess = attrs.last_success ? new Date(attrs.last_success) : null;
   const stamp = lastSuccess?.getTime();
-  // Ce qui rend days_left faux n'est pas l'écoulement de N heures, c'est le
-  // passage de minuit : tant que la dernière synchro date d'aujourd'hui, les
-  // délais affichés restent justes même si le dernier fetch a échoué.
+  // Seuil en durée, et non « même jour civil » : cette seconde condition
+  // datait de l'époque où les délais étaient figés au scrape, et c'était alors
+  // le passage de minuit qui les rendait faux. Maintenant que seule la liste
+  // est périmée, elle est à contre-emploi — elle alertait sur dix minutes
+  // d'écart à 00 h 05 et se taisait sur quinze heures à 23 h 00.
   if (stamp !== undefined && !Number.isNaN(stamp)) {
-    if (lastSuccess!.toDateString() === new Date().toDateString()) return nothing;
+    if (Date.now() - stamp < STALE_AFTER_MS) return nothing;
   }
 
   const since =
@@ -58,7 +67,7 @@ export function renderStaleNotice(
   return html`
     <div class="mc-stale" role="status">
       <span>⚠</span>
-      <span>Synchronisation en échec — données du ${since}, délais non à jour</span>
+      <span>Synchronisation en échec — liste des emprunts du ${since}</span>
     </div>
   `;
 }

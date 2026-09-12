@@ -204,6 +204,38 @@ reprendrait l'orpheline en premier, lui ferait capter l'identifiant, et
 abandonnerait la vivante. Le remède est plus probable que le mal — il se
 déclenche sans crash, la fenêtre ne s'ouvre qu'avec.
 
+## Délais et fuseau horaire
+
+`days_left`, `due_this_week` et `overdue` ne sont **pas** produits par le
+scraper : ils sont dérivés de `due_date` par `dates.with_days_left`, appelé par
+le coordinator au moment de **servir** les données, avec
+`dt_util.now().date()`.
+
+Le scraper n'a pas accès à `hass` et utilisait `date.today()`, donc le fuseau
+du **système hôte** — souvent UTC en conteneur, alors que Home Assistant est
+configuré sur Europe/Paris. Tous les délais étaient décalés d'un jour pendant
+une partie de la journée : un livre à rendre aujourd'hui s'affichait
+« 1j restants » au lieu de « ⚠ Aujourd'hui ». Pas seulement un libellé : le
+`type` du chip pilote le filtre de la carte (`card.ts`, `_isEnabled`), donc une
+carte configurée sur `today` ne montrait pas le livre du jour.
+
+Deux conséquences à ne pas défaire :
+
+- **Le cache disque garde la sortie brute du scraper**, sans `days_left`. Y
+  écrire une valeur dérivée la figerait à la date du scrape, ce qui était le
+  second défaut : une journée d'indisponibilité du portail servait des délais
+  faux sans le dire. Les trois chemins qui servent des données — fetch réussi,
+  repli sur cache, pré-remplissage au démarrage — passent tous par
+  `with_days_left`.
+- **`with_days_left` renvoie une copie.** Muter en place laisserait l'ancien
+  `State` référencer les mêmes dicts, aucun `state_changed` ne serait émis au
+  passage de minuit, et la carte afficherait le délai de la veille jusqu'au
+  cycle suivant. Même raison que `_mark_loan_extended`.
+
+La règle `DTZ` de ruff verrouille le tout. Ses exemptions sont marquées
+`# noqa: DTZ007` et portent toutes sur des dates civiles — une échéance est un
+jour, pas un instant.
+
 ## Rechargement de l'entrée de configuration
 
 Un seul endroit recharge : le listener `async_update_options`
