@@ -97,7 +97,7 @@ jobs:
         run: |
           python -c "
           import importlib
-          for suffix in ('', '.scraper', '.sensor', '.config_flow', '.migration', '.dates'):
+          for suffix in ('', '.scraper', '.sensor', '.config_flow', '.migration', '.dates', '.coordinator'):
               name = 'custom_components.mediatheque_veauche' + suffix
               importlib.import_module(name)
               print('ok', name)

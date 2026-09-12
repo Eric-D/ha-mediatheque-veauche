@@ -23,6 +23,7 @@ import homeassistant.exceptions
 import pytest
 
 import custom_components.mediatheque_veauche as integration
+import custom_components.mediatheque_veauche.coordinator
 import custom_components.mediatheque_veauche.scraper  # noqa: F401
 
 # Surface d'import attendue de l'intégration. À mettre à jour sciemment quand
@@ -47,6 +48,9 @@ EXPECTED = {
     "homeassistant.helpers.config_validation",
     "homeassistant.helpers.entity_registry",
     "homeassistant.helpers.start",
+    "homeassistant.helpers.storage",
+    "homeassistant.helpers.update_coordinator",
+    "homeassistant.util",
     "voluptuous",
 }
 

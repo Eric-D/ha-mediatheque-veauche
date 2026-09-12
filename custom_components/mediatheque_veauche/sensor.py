@@ -7,14 +7,12 @@ from datetime import date, datetime, timedelta
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
-    UpdateFailed,
 )
 from homeassistant.util import dt as dt_util
 
@@ -25,64 +23,15 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from .coordinator import (
+    STORAGE_VERSION,
+    MediathequeDataSource,
+    async_load_cache,
+)
 from .dates import with_days_left
 from .migration import build_unique_id
-from .scraper import InvalidCredentialsError
 
 _LOGGER = logging.getLogger(__name__)
-
-STORAGE_VERSION = 1
-
-
-async def _async_take_over_legacy_cache(hass: HomeAssistant, username: str) -> dict:
-    """Récupère le cache de l'ancien nom de fichier, puis le supprime.
-
-    Se tromper ici ne coûte qu'un cycle de rafraîchissement, jamais de
-    l'historique : à défaut, le coordinator repart simplement à vide.
-    """
-    legacy = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
-    try:
-        data = await legacy.async_load() or {}
-        if data:
-            _LOGGER.info("Reprise du cache disque hérité de %s", username)
-            await legacy.async_remove()
-        return data
-    except Exception:
-        _LOGGER.exception("Reprise du cache hérité impossible")
-        return {}
-
-
-def _is_number(value: object) -> bool:
-    """Nombre exploitable pour une comparaison (None accepté, bool refusé)."""
-    return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
-
-
-def _is_valid_payload(data: object) -> bool:
-    """Vérifie qu'un payload (souvent relu du cache disque) a la forme attendue.
-
-    Le Store versionne le conteneur, pas le contenu : un cache écrit par une
-    version antérieure peut manquer de clés et faire lever les sensors à chaque
-    écriture d'état. Mieux vaut l'ignorer que casser l'intégration.
-    """
-    if not isinstance(data, dict):
-        return False
-    membres = data.get("membres")
-    if not isinstance(membres, dict):
-        return False
-    for loans in membres.values():
-        if not isinstance(loans, list):
-            return False
-        for loan in loans:
-            if not isinstance(loan, dict):
-                return False
-            # days_left n'est plus relu du cache — with_days_left l'écrase —
-            # mais un cache hérité en contient, et un format qui aurait dérivé
-            # à ce point sur une clé connue n'est pas un cache de confiance.
-            # None passe : c'est la forme du cache écrit depuis 3.7.
-            if not _is_number(loan.get("days_left")):
-                return False
-    subscription = data.get("subscription")
-    return subscription is None or isinstance(subscription, dict)
 
 
 async def async_setup_entry(
@@ -103,71 +52,9 @@ async def async_setup_entry(
     # repartait d'un cache vide, donc capteurs « unknown » jusqu'au premier
     # fetch réussi — et « unavailable » si celui-ci échouait.
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_cache")
-    cached = await store.async_load() or {}
-    if not cached:
-        cached = await _async_take_over_legacy_cache(hass, username)
-    if not isinstance(cached, dict):
-        _LOGGER.warning("Cache disque corrompu (conteneur %s), ignoré", type(cached).__name__)
-        cached = {}
-    if cached.get("data") is not None and not _is_valid_payload(cached["data"]):
-        _LOGGER.warning(
-            "Cache disque au format inattendu (écrit par une version antérieure ?), ignoré"
-        )
-        cached.pop("data", None)
-        cached.pop("last_success", None)
+    cached = await async_load_cache(hass, store, username)
     state = {"last_success": cached.get("last_success")}
-
-    async def async_update_data() -> dict:
-        """Fetch data from the library."""
-        try:
-            raw = await hass.async_add_executor_job(client.fetch_all)
-            state["last_success"] = dt_util.utcnow().isoformat()
-            # Le cache disque reçoit la sortie brute du scraper : y écrire les
-            # marqueurs de fraîcheur — ou les délais, qui dépendent du jour —
-            # les figerait pour la prochaine relecture.
-            cached["data"] = raw
-            cached["last_success"] = state["last_success"]
-            await store.async_save(cached)
-            # dt_util.now() et non date.today() : le fuseau est celui configuré
-            # dans Home Assistant, pas celui du système hôte.
-            data = with_days_left(raw, dt_util.now().date())
-            _LOGGER.info(
-                "Données récupérées: %d emprunts, %d à rendre cette semaine, %d en retard",
-                data.get("total", 0),
-                data.get("due_this_week", 0),
-                data.get("overdue", 0),
-            )
-            return {**data, "last_success": state["last_success"], "fetch_ok": True}
-        except InvalidCredentialsError as err:
-            # Pas de repli sur le cache : réessayer ne servira à rien, et
-            # continuer à servir des données périmées masquerait le vrai
-            # problème. ConfigEntryAuthFailed déclenche la notification
-            # « Reconfigurer » de Home Assistant.
-            _LOGGER.warning("Identifiants refusés par la médiathèque: %s", err)
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except Exception as err:
-            _LOGGER.warning("Échec de la mise à jour des données: %s", err)
-            if cached.get("data"):
-                _LOGGER.info(
-                    "Utilisation des données en cache (dernier fetch: %s)",
-                    state["last_success"],
-                )
-                # Copie marquée : sans horodatage d'échec, le payload serait
-                # identique au cycle précédent, HA dédoublonnerait l'écriture
-                # d'état et la carte n'aurait aucun moyen de savoir que les
-                # données affichées sont périmées.
-                # coordinator.data plutôt que cached["data"] : il porte les
-                # prolongations marquées en mémoire depuis le dernier fetch.
-                base = coordinator.data if coordinator.data else cached["data"]
-                # Recalculé ici aussi : c'est le seul chemin où les données
-                # peuvent traverser un minuit sans nouveau scrape.
-                return {
-                    **with_days_left(base, dt_util.now().date()),
-                    "last_success": state["last_success"],
-                    "fetch_ok": False,
-                    "last_error_at": dt_util.utcnow().isoformat(),
-                }
-            raise UpdateFailed(f"Error fetching library data: {err}") from err
+    source = MediathequeDataSource(hass, client, store, cached, state)
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -177,9 +64,14 @@ async def async_setup_entry(
         # flux de ré-authentification ne démarrerait jamais, en silence.
         config_entry=entry,
         name=f"{DOMAIN}_{username}",
-        update_method=async_update_data,
+        update_method=source.async_update,
         update_interval=timedelta(minutes=scan_interval),
     )
+
+    # Le repli sur cache repart des données en mémoire, qui portent les
+    # prolongations marquées depuis le dernier fetch. La source ne peut pas
+    # recevoir le coordinator à la construction : il lui faut sa méthode.
+    source.coordinator = coordinator
 
     # Store coordinator reference for service access
     hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator

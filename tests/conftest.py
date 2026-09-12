@@ -117,6 +117,16 @@ if "homeassistant" in MOCKED_ROOTS:
 
     _ha_core.callback = callback
 
+    # UpdateFailed ne vit pas dans homeassistant.exceptions mais dans le
+    # helper du coordinator, et n'en hérite pas non plus : le coordinator la
+    # rattrape par son type exact pour marquer l'échec du cycle.
+    import homeassistant.helpers.update_coordinator as _ha_coordinator
+
+    class UpdateFailed(Exception):
+        """Équivalent local de update_coordinator.UpdateFailed."""
+
+    _ha_coordinator.UpdateFailed = UpdateFailed
+
     _ha_exceptions.HomeAssistantError = HomeAssistantError
     _ha_exceptions.ServiceValidationError = ServiceValidationError
     _ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
