@@ -219,9 +219,14 @@ où **aucun listener n'est appelé** :
 - l'entrée n'a pas changé — reconfiguration rouverte puis resoumise à
   l'identique — `async_update_entry` renvoyant alors `False` sans rien
   notifier ;
-- aucun listener n'est enregistré, `async_setup_entry` n'ayant pas abouti.
-  C'est le cas nominal d'une ré-authentification : elle n'est déclenchée que
-  par un `ConfigEntryAuthFailed`, qui laisse l'entrée en échec.
+- aucun listener n'est enregistré : entrée désactivée, ou `async_setup_entry`
+  interrompu avant `add_update_listener`. **Ce n'est pas le cas d'une
+  ré-authentification** : le seul `ConfigEntryAuthFailed` du dépôt est levé
+  dans le rafraîchissement du coordinator (`sensor.py`), lancé en tâche de
+  fond après le setup, donc avec `raise_on_auth_failed=False` — Home Assistant
+  appelle `async_start_reauth` sans changer l'état de l'entrée, qui reste
+  `LOADED` avec son listener. La réauth passe donc par la première branche
+  quand le mot de passe est ressaisi à l'identique, et par le listener sinon.
 
 Sans ce rechargement explicite, l'entrée resterait en erreur alors que les
 identifiants viennent d'être validés.
@@ -243,12 +248,15 @@ personnalisée : Home Assistant ne charge que `translations/<langue>.json`, avec
 repli sur `en`. Une clé présente dans le seul `strings.json` s'affiche donc en
 clé brute à l'utilisateur.
 
-`en.json` n'est pas optionnel pour la même raison : les raisons d'abandon
-`reconfigure_successful` et `reauth_successful` sont traduites par le cœur
-quand c'est `async_update_reload_and_abort` qui les produit — il passe
-`translation_domain=homeassistant` —, mais nos `async_abort` les résolvent dans
-notre domaine. (`translation_domain` sur `async_abort` n'existe pas encore en
-2024.11, le plancher déclaré : ce n'est pas une alternative.)
+`en.json` n'est pas optionnel : `en` est la langue de **repli** de Home
+Assistant, donc ce que voit tout utilisateur non francophone. Les raisons
+d'abandon `reconfigure_successful` et `reauth_successful` sont produites par nos
+propres `async_abort` et se résolvent donc dans notre domaine. Sur les versions
+récentes, `async_update_reload_and_abort` les ferait résoudre par le cœur en
+passant `translation_domain` — mais ni ce passage ni le paramètre lui-même
+n'existent en 2024.11, le plancher déclaré : là-bas ces clés n'étaient pas
+mieux traduites avant la bascule qu'après. `translation_domain` n'est donc pas
+une alternative à ce fichier, sur aucune version supportée.
 
 `tests/test_translations.py` croise le flux et **tous** les fichiers de
 traduction ; ne pas le restreindre à `strings.json`.

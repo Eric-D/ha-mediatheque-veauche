@@ -148,6 +148,16 @@ class TestReloadIsScheduledOnce:
 
 
 class TestTranslationFilesMatch:
+    def test_fallback_language_is_present(self):
+        """en est la langue de repli : son absence se voit chez les autres.
+
+        Le reste de ce fichier boucle sur les fichiers trouvés — en supprimer
+        un laisse donc tout au vert, y compris celui que lisent les
+        utilisateurs non francophones.
+        """
+        missing = {"en", "fr"} - set(TRANSLATIONS)
+        assert not missing, f"fichiers de traduction manquants : {sorted(missing)}"
+
     def test_same_keys_as_strings(self):
         reference = _flat(STRINGS)
         for language, content in TRANSLATIONS.items():

@@ -334,9 +334,11 @@ def update_entry_and_ensure_reload(
     - l'entrée n'a pas changé — reconfiguration rouverte puis resoumise à
       l'identique — auquel cas async_update_entry renvoie False sans rien
       notifier ;
-    - aucun listener n'est enregistré, l'entrée n'ayant pas atteint l'état
-      LOADED : c'est le cas nominal d'une réauthentification, déclenchée par
-      un ConfigEntryAuthFailed qui laisse l'entrée en échec.
+    - aucun listener n'est enregistré : entrée désactivée, ou async_setup_entry
+      interrompu avant add_update_listener — une migration qui lève, par
+      exemple. Ce n'est PAS le cas d'une réauthentification : le
+      ConfigEntryAuthFailed vient d'un rafraîchissement de fond, postérieur au
+      setup, qui laisse l'entrée LOADED et son listener en place.
 
     Sans ça l'entrée resterait en erreur alors que les identifiants viennent
     d'être validés.

@@ -440,7 +440,9 @@ class TestUpdateEntryAndEnsureReload:
     def test_change_without_listener_is_reloaded_explicitly(self):
         """Entrée jamais montée : add_update_listener n'a pas été atteint.
 
-        C'est le cas nominal d'une réauthentification, l'entrée étant en échec.
+        Entrée désactivée, ou setup interrompu par une migration qui lève. Pas
+        une réauthentification : celle-ci part d'un rafraîchissement de fond,
+        donc d'une entrée déjà chargée, dont le listener est en place.
         """
         entries = _ConfigEntries(changed=True)
         entry = _Entry(listeners=0)
