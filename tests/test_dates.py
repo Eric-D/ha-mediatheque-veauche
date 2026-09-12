@@ -85,8 +85,13 @@ class TestWithDaysLeft:
         )
         assert days == [-3, 5, None]
 
-    def test_due_today_counts_as_due_this_week(self):
-        assert with_days_left(_data("2024-03-10"), TODAY)["due_this_week"] == 1
+    def test_due_today_counts_as_due_this_week_and_not_as_overdue(self):
+        result = with_days_left(_data("2024-03-10"), TODAY)
+        assert result["due_this_week"] == 1
+        # La borne basse d'overdue : « à rendre aujourd'hui » n'est pas un
+        # retard. Le capteur « Emprunts en retard » afficherait 1 pour un livre
+        # encore dans les temps.
+        assert result["overdue"] == 0
 
     def test_seventh_day_is_inside_the_week_and_eighth_is_not(self):
         result = with_days_left(_data("2024-03-17", "2024-03-18"), TODAY)
@@ -124,6 +129,18 @@ class TestWithDaysLeft:
         assert "days_left" not in loan
         assert "due_this_week" not in source
         assert result["membres"]["Jean"][0] is not loan
+
+    def test_subscription_is_never_mutated(self):
+        """Sous-objet partagé avec le cache disque : le coordinator écrit la
+        sortie brute du scraper sur disque puis la date. Muter ici referait
+        persister la valeur dérivée, exactement ce qu'on cherche à éviter."""
+        subscription = {"expiry_date": "2024-06-30", "subscriptions": []}
+        source = _data("2024-03-15", subscription=subscription)
+
+        result = with_days_left(source, TODAY)
+
+        assert "days_left" not in subscription
+        assert result["subscription"] is not subscription
 
     def test_recomputed_for_a_later_day(self):
         """Le cas que le calcul figé au scrape ne couvrait pas : un cache servi

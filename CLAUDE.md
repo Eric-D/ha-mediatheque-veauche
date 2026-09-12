@@ -215,7 +215,9 @@ Le scraper n'a pas accès à `hass` et utilisait `date.today()`, donc le fuseau
 du **système hôte** — souvent UTC en conteneur, alors que Home Assistant est
 configuré sur Europe/Paris. Tous les délais étaient décalés d'un jour pendant
 une partie de la journée : un livre à rendre aujourd'hui s'affichait
-« 1j restants » en jaune au lieu de « ⚠ Aujourd'hui » en orange.
+« 1j restants » au lieu de « ⚠ Aujourd'hui ». Pas seulement un libellé : le
+`type` du chip pilote le filtre de la carte (`card.ts`, `_isEnabled`), donc une
+carte configurée sur `today` ne montrait pas le livre du jour.
 
 Deux conséquences à ne pas défaire :
 
@@ -230,9 +232,9 @@ Deux conséquences à ne pas défaire :
   passage de minuit, et la carte afficherait le délai de la veille jusqu'au
   cycle suivant. Même raison que `_mark_loan_extended`.
 
-La règle `DTZ` de ruff verrouille le tout. Ses deux exemptions sont marquées
-`# noqa: DTZ007` et portent sur des dates civiles — une échéance est un jour,
-pas un instant.
+La règle `DTZ` de ruff verrouille le tout. Ses exemptions sont marquées
+`# noqa: DTZ007` et portent toutes sur des dates civiles — une échéance est un
+jour, pas un instant.
 
 ## Rechargement de l'entrée de configuration
 

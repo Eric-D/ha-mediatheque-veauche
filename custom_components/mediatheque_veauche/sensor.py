@@ -75,9 +75,10 @@ def _is_valid_payload(data: object) -> bool:
         for loan in loans:
             if not isinstance(loan, dict):
                 return False
-            # days_left est comparé numériquement à chaque écriture d'état :
-            # une chaîne passerait le test « is not None » et lèverait un
-            # TypeError à chaque cycle.
+            # days_left n'est plus relu du cache — with_days_left l'écrase —
+            # mais un cache hérité en contient, et un format qui aurait dérivé
+            # à ce point sur une clé connue n'est pas un cache de confiance.
+            # None passe : c'est la forme du cache écrit depuis 3.7.
             if not _is_number(loan.get("days_left")):
                 return False
     subscription = data.get("subscription")
