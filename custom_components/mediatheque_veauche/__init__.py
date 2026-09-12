@@ -10,7 +10,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -106,17 +106,29 @@ def _select_entry(
 
 
 def _loan_entries(hass: HomeAssistant) -> list[tuple[str, MediathequeRuntimeData]]:
-    """Entrées dont le setup a abouti, dans l'ordre d'ajout.
+    """Comptes utilisables, dans l'ordre d'ajout à la collection.
 
-    runtime_data n'existe pas tant qu'async_setup_entry ne l'a pas posé, et
-    Home Assistant le supprime au déchargement : le getattr suffit à écarter
-    les entrées désactivées, en échec ou déchargées, là où le dictionnaire
-    global demandait d'entretenir la même information à la main.
+    Deux filtres, et les deux sont nécessaires :
+
+    - `runtime_data` n'existe pas tant qu'async_setup_entry ne l'a pas posé, et
+      Home Assistant le supprime au déchargement réussi. Ça écarte les entrées
+      désactivées, ignorées et déchargées.
+    - l'état, parce que `runtime_data` est posé en première instruction et
+      **survit à un setup qui échoue ensuite** : HA ne le supprime que sur le
+      chemin du déchargement. Sans ce filtre, un compte resté en erreur
+      continue de compter — et empêche le retrait du service `extend_loan` le
+      jour où le dernier compte valide est supprimé. C'était déjà le défaut du
+      dictionnaire global ; le porter tel quel l'aurait reconduit.
+
+    L'ordre n'est plus celui d'achèvement des setups, qui tournent
+    concurremment, mais celui d'ajout à la collection. Plus déterministe, sans
+    conséquence ici : le choix du compte se fait sur la possession du prêt.
     """
     return [
         (entry.entry_id, data)
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if (data := getattr(entry, "runtime_data", None)) is not None
+        if entry.state is ConfigEntryState.LOADED
+        and (data := getattr(entry, "runtime_data", None)) is not None
     ]
 
 
@@ -386,14 +398,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: MediathequeConfigEntry)
     Les rechargements sont fréquents : changement d'options, reconfiguration,
     ré-authentification.
     """
-    # L'entrée en cours de suppression est encore listée ici : Home Assistant
-    # appelle async_remove_entry avant de la retirer de sa collection. Et son
-    # runtime_data lui survit quand elle n'était pas chargée, async_unload
-    # sortant avant pour tout état autre que LOADED — c'est le cas d'un compte
-    # resté en erreur d'authentification. Sans cette exclusion, supprimer le
-    # dernier compte laisserait le service en place jusqu'au redémarrage.
-    remaining = [
-        entry_id for entry_id, _ in _loan_entries(hass) if entry_id != entry.entry_id
-    ]
-    if not remaining and hass.services.has_service(DOMAIN, SERVICE_EXTEND_LOAN):
+    # Pas d'exclusion de l'entrée en cours de suppression : Home Assistant la
+    # décharge avant d'appeler ce handler, donc son état n'est plus LOADED et
+    # le filtre d'état de _loan_entries l'écarte déjà. Se fier à sa présence
+    # dans la collection serait de toute façon fragile : HA a inversé l'ordre
+    # en 2025.3 — auparavant l'entrée était encore listée ici, depuis elle en
+    # est déjà sortie.
+    if not _loan_entries(hass) and hass.services.has_service(
+        DOMAIN, SERVICE_EXTEND_LOAN
+    ):
         hass.services.async_remove(DOMAIN, SERVICE_EXTEND_LOAN)

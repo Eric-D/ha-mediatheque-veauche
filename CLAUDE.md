@@ -264,24 +264,37 @@ jour, pas un instant.
 
 Le client, le login et le coordinator vivent dans `entry.runtime_data`
 (`coordinator.MediathequeRuntimeData`), **pas** dans
-`hass.data[DOMAIN][entry_id]`. C'est ce que Home Assistant prévoit depuis
-2024.6, et ça supprime deux servitudes qu'on entretenait à la main :
+`hass.data[DOMAIN][entry_id]`.
 
-- le déchargement n'a plus rien à vider — Home Assistant supprime
-  `runtime_data` lui-même, mais **seulement si le déchargement réussit** ;
-- une entrée jamais chargée n'apparaît plus dans `_loan_entries`, puisqu'elle
-  n'a pas de `runtime_data`. Auparavant son client restait dans le
-  dictionnaire global jusqu'au redémarrage, ce qui suffisait à empêcher le
-  retrait du service `extend_loan` le jour où le dernier vrai compte était
-  supprimé.
+Deux filtres dans `_loan_entries`, et **les deux sont nécessaires** :
 
-**`async_remove_entry` doit exclure l'entrée en cours de suppression**, et
-c'est contre-intuitif : Home Assistant l'appelle **avant** de la retirer de sa
-collection (`config_entries.py`, `async_remove` : `entry.async_remove()` puis
-`del self._entries[...]`), et son `runtime_data` lui survit quand elle n'était
-pas chargée, `async_unload` sortant avant pour tout état autre que `LOADED`.
-Sans cette exclusion, supprimer le dernier compte laisse le service en place.
-Couvert par `tests/test_init.py::TestRemoveEntry`.
+- `runtime_data` n'existe pas tant qu'`async_setup_entry` ne l'a pas posé, et
+  Home Assistant le supprime **au déchargement réussi seulement**. Ça écarte
+  les entrées désactivées, ignorées et déchargées, sans rien entretenir à la
+  main.
+- l'état, parce que `runtime_data` est posé en première instruction et
+  **survit à un setup qui échoue ensuite** — HA ne le supprime que sur le
+  chemin du déchargement. Sans ce filtre, un compte resté en erreur compte
+  encore comme utilisable et retient le service `extend_loan` indéfiniment.
+  C'était déjà le défaut du dictionnaire global ; le porter tel quel l'aurait
+  reconduit.
+
+`async_remove_entry` n'exclut pas l'entrée en cours de suppression : Home
+Assistant la décharge avant d'appeler le handler, donc le filtre d'état s'en
+charge. **Ne pas se fier à sa présence dans la collection** : HA a inversé
+l'ordre en 2025.3 — avant, l'entrée était encore listée pendant le handler ;
+depuis, elle en est déjà sortie. Le filtre d'état est vrai des deux côtés.
+
+L'ordre de `_loan_entries` n'est plus celui d'achèvement des setups, qui
+tournent concurremment, mais celui d'ajout à la collection. Plus déterministe,
+sans conséquence : le compte est choisi sur la possession du prêt.
+
+**Rien ne fait respecter l'affectation de `runtime_data`.** L'attribut n'a pas
+de défaut et son absence est silencieuse — `_loan_entries` l'écarte par un
+`getattr`. Ne jamais le poser rendrait l'intégration entièrement muette, CI
+verte : zéro capteur, et un `extend_loan` qui répond « aucun compte
+configuré ». D'où `tests/test_init.py::TestRuntimeDataIsActuallyWired`, qui lit
+la source — `sensor.py` n'étant pas importable sous les mocks.
 
 Le plancher tient : `runtime_data` et `ConfigEntry[T]` existent en 2024.11.
 

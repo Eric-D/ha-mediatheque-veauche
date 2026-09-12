@@ -28,7 +28,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .dates import with_days_left
-from .scraper import InvalidCredentialsError
+from .scraper import InvalidCredentialsError, MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class MediathequeRuntimeData:
     n'existe pas encore quand async_setup_entry remplit le reste.
     """
 
-    client: Any
+    client: MediathequeVeaucheClient
     username: str
     coordinator: DataUpdateCoordinator | None = None
 
