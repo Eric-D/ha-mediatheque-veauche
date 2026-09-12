@@ -17,6 +17,13 @@
           "username": "Identifiant",
           "password": "Mot de passe"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnexion à la médiathèque",
+        "description": "Les identifiants de {username} ont été refusés par la médiathèque. Saisissez le mot de passe à jour pour reprendre la synchronisation.",
+        "data": {
+          "password": "Mot de passe"
+        }
       }
     },
     "error": {
@@ -26,7 +33,8 @@
     },
     "abort": {
       "already_configured": "Cette médiathèque est déjà configurée.",
-      "reconfigure_successful": "Identifiants mis à jour avec succès."
+      "reconfigure_successful": "Identifiants mis à jour avec succès.",
+      "reauth_successful": "Reconnexion réussie, la synchronisation reprend."
     }
   },
   "options": {

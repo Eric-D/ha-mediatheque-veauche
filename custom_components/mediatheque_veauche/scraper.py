@@ -27,7 +27,21 @@ MONTHS_FR = [
 
 
 class AuthenticationError(Exception):
-    """Raised when authentication fails."""
+    """Échec d'authentification, cause indéterminée.
+
+    Couvre notamment les cas structurels — page de connexion qui a changé,
+    portail en maintenance, session expirée — qui ressemblent à un échec
+    d'identifiants sans en être un. Ils doivent être réessayés, pas remontés à
+    l'utilisateur comme « mot de passe invalide ».
+    """
+
+
+class InvalidCredentialsError(AuthenticationError):
+    """Les identifiants ont été refusés par le site.
+
+    Seul cas qui justifie de solliciter l'utilisateur : réessayer n'y changera
+    rien tant qu'il n'aura pas saisi de nouveaux identifiants.
+    """
 
 
 class MediathequeVeaucheClient:
@@ -86,7 +100,11 @@ class MediathequeVeaucheClient:
         resp.raise_for_status()
 
         if "com_users" in resp.url and "login" in resp.url.lower():
-            raise AuthenticationError("Login failed: redirected back to login page")
+            # Renvoyé vers la page de connexion APRÈS avoir posté les
+            # identifiants : ils sont refusés, pas le site indisponible.
+            raise InvalidCredentialsError(
+                "Identifiants refusés : redirection vers la page de connexion"
+            )
 
         self._borrowings_html = resp.text
         _LOGGER.info("Connexion réussie, page des emprunts récupérée")

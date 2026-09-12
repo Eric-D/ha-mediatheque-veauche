@@ -7,6 +7,7 @@ import logging
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
@@ -16,6 +17,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 from homeassistant.util import dt as dt_util
 
+from .scraper import InvalidCredentialsError
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
@@ -106,6 +108,13 @@ async def async_setup_entry(
                 data.get("overdue", 0),
             )
             return {**data, "last_success": state["last_success"], "fetch_ok": True}
+        except InvalidCredentialsError as err:
+            # Pas de repli sur le cache : réessayer ne servira à rien, et
+            # continuer à servir des données périmées masquerait le vrai
+            # problème. ConfigEntryAuthFailed déclenche la notification
+            # « Reconfigurer » de Home Assistant.
+            _LOGGER.warning("Identifiants refusés par la médiathèque: %s", err)
+            raise ConfigEntryAuthFailed(str(err)) from err
         except Exception as err:
             _LOGGER.warning("Échec de la mise à jour des données: %s", err)
             if cached.get("data"):

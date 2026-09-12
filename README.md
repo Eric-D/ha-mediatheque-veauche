@@ -115,6 +115,14 @@ Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents
 
 > **Compat** : les anciens noms `all` et `grid` sont normalisés silencieusement vers `list` et `covers`. Le mode `due` (cassé) a été retiré en v3.2.0.
 
+## Identifiants refusés
+
+Si la médiathèque refuse vos identifiants — mot de passe changé sur leur site, compte suspendu — Home Assistant affiche une notification **« Reconfigurer »** sur l'intégration et vous demande le mot de passe à jour. La synchronisation reprend dès qu'il est accepté.
+
+Tant que ce n'est pas fait, les capteurs deviennent indisponibles plutôt que de continuer à servir les données du cache : des emprunts affichés comme à jour alors qu'ils ne le sont plus seraient pires que pas de données du tout.
+
+Les autres pannes — site injoignable, portail en maintenance, page de connexion modifiée — ne déclenchent **pas** cette demande : elles sont réessayées, et les données du cache restent affichées avec un bandeau d'avertissement si elles datent d'un jour antérieur.
+
 ## Structure des sensors
 
 ### `sensor.emprunts_mediatheque`

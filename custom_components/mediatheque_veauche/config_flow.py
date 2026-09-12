@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -17,7 +18,11 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
-from .scraper import AuthenticationError, MediathequeVeaucheClient
+from .scraper import (
+    AuthenticationError,
+    InvalidCredentialsError,
+    MediathequeVeaucheClient,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +42,27 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    async def _async_validate(self, username: str, password: str) -> str | None:
+        """Tente une connexion. Renvoie une clé d'erreur, ou None si ça passe.
+
+        InvalidCredentialsError est distingué à dessein : un échec structurel
+        (page de connexion modifiée, portail en maintenance) ne doit pas
+        s'afficher « identifiants invalides » à l'utilisateur, qui chercherait
+        au mauvais endroit.
+        """
+        client = MediathequeVeaucheClient(username, password)
+        try:
+            await self.hass.async_add_executor_job(client.login)
+        except InvalidCredentialsError:
+            return "invalid_auth"
+        except AuthenticationError:
+            _LOGGER.warning("Échec d'authentification non lié aux identifiants")
+            return "cannot_connect"
+        except Exception:
+            _LOGGER.exception("Erreur inattendue à la connexion")
+            return "cannot_connect"
+        return None
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -48,17 +74,11 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(user_input[CONF_USERNAME])
             self._abort_if_unique_id_configured()
 
-            # Validate credentials
-            client = MediathequeVeaucheClient(
+            error = await self._async_validate(
                 user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
-            try:
-                await self.hass.async_add_executor_job(client.login)
-            except AuthenticationError:
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Unexpected error during login")
-                errors["base"] = "cannot_connect"
+            if error:
+                errors["base"] = error
             else:
                 return self.async_create_entry(
                     title=f"Médiathèque ({user_input[CONF_USERNAME]})",
@@ -79,21 +99,16 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
 
         if user_input is not None:
-            client = MediathequeVeaucheClient(
+            error = await self._async_validate(
                 user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
             )
-            try:
-                await self.hass.async_add_executor_job(client.login)
-            except AuthenticationError:
-                errors["base"] = "invalid_auth"
-            except Exception:
-                _LOGGER.exception("Unexpected error during reconfigure login")
-                errors["base"] = "cannot_connect"
+            if error:
+                errors["base"] = error
             else:
                 return self.async_update_reload_and_abort(
                     entry,
                     title=f"Médiathèque ({user_input[CONF_USERNAME]})",
-                    data={**entry.data, **user_input},
+                    data_updates=user_input,
                 )
 
         current_username = entry.data.get(CONF_USERNAME, "")
@@ -105,6 +120,36 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_PASSWORD): str,
                 }
             ),
+            errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> FlowResult:
+        """Déclenché par ConfigEntryAuthFailed depuis le coordinator."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Redemande le mot de passe, l'identifiant étant celui de l'entrée."""
+        entry = self._get_reauth_entry()
+        username = entry.data[CONF_USERNAME]
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            error = await self._async_validate(username, user_input[CONF_PASSWORD])
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}),
+            description_placeholders={"username": username},
             errors=errors,
         )
 

@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from custom_components.mediatheque_veauche.scraper import (
     AuthenticationError,
+    InvalidCredentialsError,
     DEFAULT_ACCOUNT_NAME,
     DEFAULT_MEMBER_NAME,
     MediathequeVeaucheClient,
@@ -416,6 +417,102 @@ class TestFetchSubscriptionExpiry:
         result = client._fetch_subscription_expiry()
         assert result["expiry_date"] is None
         assert result["subscriptions"] == []
+
+
+# ---------------------------------------------------------------------------
+# Discrimination des échecs d'authentification
+# ---------------------------------------------------------------------------
+
+LOGIN_PAGE_WITH_TOKEN = (
+    '<html><body><form>'
+    '<input type="hidden" name="0123456789abcdef0123456789abcdef" value="1">'
+    "</form></body></html>"
+)
+
+
+class TestAuthenticationErrors:
+    """Seuls des identifiants refusés doivent solliciter l'utilisateur.
+
+    Un échec structurel — page de connexion modifiée, portail en maintenance —
+    ressemble à un échec d'identifiants sans en être un. Le remonter comme tel
+    déclencherait une notification « Reconfigurer » trompeuse, et l'utilisateur
+    chercherait au mauvais endroit. C'est la distinction que ConfigEntryAuthFailed
+    exige côté coordinator.
+    """
+
+    def test_invalid_credentials_is_an_authentication_error(self):
+        """Le code existant attrape AuthenticationError : la hiérarchie doit tenir."""
+        assert issubclass(InvalidCredentialsError, AuthenticationError)
+
+    def test_login_redirect_means_invalid_credentials(self, client, monkeypatch):
+        pages = [LOGIN_PAGE_WITH_TOKEN, "", ""]
+        urls = [
+            "https://mediatheque.veauche.fr/index.php",
+            "https://mediatheque.veauche.fr/index.php",
+            "https://mediatheque.veauche.fr/index.php?option=com_users&view=login",
+        ]
+
+        class _Session:
+            headers = {}
+
+            def update(self, *_):
+                pass
+
+            def _resp(self):
+                return type("Response", (), {
+                    "text": pages.pop(0),
+                    "url": urls.pop(0),
+                    "raise_for_status": lambda self: None,
+                })()
+
+            def get(self, url, timeout=15):
+                return self._resp()
+
+            def post(self, url, data=None, timeout=15):
+                return self._resp()
+
+        session = _Session()
+        session.headers = type("H", (), {"update": lambda self, *_: None})()
+        monkeypatch.setattr(
+            "custom_components.mediatheque_veauche.scraper.requests.Session",
+            lambda: session,
+        )
+        with pytest.raises(InvalidCredentialsError):
+            client.login()
+
+    def test_missing_csrf_token_is_not_a_credentials_problem(self, client, monkeypatch):
+        """Page de connexion sans jeton : le site a changé ou est en maintenance."""
+
+        class _Session:
+            def __init__(self):
+                self.headers = type("H", (), {"update": lambda self, *_: None})()
+
+            def get(self, url, timeout=15):
+                return type("Response", (), {
+                    "text": "<html><body>Maintenance</body></html>",
+                    "url": url,
+                    "raise_for_status": lambda self: None,
+                })()
+
+        monkeypatch.setattr(
+            "custom_components.mediatheque_veauche.scraper.requests.Session",
+            _Session,
+        )
+        with pytest.raises(AuthenticationError) as excinfo:
+            client.login()
+        assert not isinstance(excinfo.value, InvalidCredentialsError)
+
+    def test_expired_session_on_extend_is_not_a_credentials_problem(self, client):
+        """Une session périmée se répare par une reconnexion, pas par l'utilisateur."""
+        resp = type("Response", (), {
+            "url": "https://mediatheque.veauche.fr/index.php?option=com_users&view=login",
+            "status_code": 200,
+            "raise_for_status": lambda self: None,
+        })()
+        client._session = type("Session", (), {"get": lambda self, u, timeout=15: resp})()
+        with pytest.raises(AuthenticationError) as excinfo:
+            client.extend_loan("https://mediatheque.veauche.fr/extend/1")
+        assert not isinstance(excinfo.value, InvalidCredentialsError)
 
 
 # ---------------------------------------------------------------------------
