@@ -515,10 +515,64 @@ class TestAuthenticationErrors:
         assert client._borrowings_html == ""
 
     def test_http_401_on_login_means_invalid_credentials(self, client, monkeypatch):
+        """401 est un défi d'authentification explicite."""
         session = _FakeSession(_response(LOGIN_PAGE), _response(status=401))
         self._install(monkeypatch, session)
         with pytest.raises(InvalidCredentialsError):
             client.login()
+
+    @pytest.mark.parametrize("status", [403, 429])
+    def test_blocking_status_codes_are_not_credentials_problems(
+        self, client, monkeypatch, status
+    ):
+        """403 et 429 viennent d'un pare-feu ou d'une limitation de débit.
+
+        Ce client s'annonce avec un User-Agent non navigateur tout en postant un
+        formulaire contenant un mot de passe : exactement ce qui déclenche ces
+        protections. Les traiter en refus d'identifiants arrêterait la
+        synchronisation et ferait ressaisir en boucle un mot de passe correct.
+        """
+        session = _FakeSession(_response(LOGIN_PAGE), _response(status=status))
+        self._install(monkeypatch, session)
+        with pytest.raises(Exception) as excinfo:
+            client.login()
+        assert not isinstance(excinfo.value, InvalidCredentialsError)
+
+    def test_account_without_loans_is_authenticated(self, client, monkeypatch):
+        """Hypothèse porteuse du contrôle, figée ici.
+
+        #profile_borrowed est le bloc d'en-tête qui porte le nom du titulaire,
+        pas une section d'emprunts : il est rendu même pour un compte à zéro
+        emprunt. Si cette hypothèse tombait, _assert_authenticated rejetterait
+        des sessions valides.
+        """
+        empty_account = (
+            '<html><body><div id="profile_borrowed"><h2>DUPONT Jean</h2></div>'
+            "</body></html>"
+        )
+        session = _FakeSession(
+            _response(LOGIN_PAGE), _response(), _response(empty_account), _response()
+        )
+        self._install(monkeypatch, session)
+        client.login()
+        assert client._borrowings_html == empty_account
+
+    def test_logout_link_alone_proves_authentication(self, client, monkeypatch):
+        """Filet pour un gabarit qui embarquerait une modale de connexion partout.
+
+        Sans lui, un compte sans emprunt servi par un tel gabarit passerait pour
+        un refus d'identifiants alors que la session est valide.
+        """
+        page = (
+            '<html><body><a href="/index.php?task=user.logout">Déconnexion</a>'
+            '<form><input type="password" name="password"></form></body></html>'
+        )
+        session = _FakeSession(
+            _response(LOGIN_PAGE), _response(), _response(page), _response()
+        )
+        self._install(monkeypatch, session)
+        client.login()
+        assert client._borrowings_html == page
 
     def test_login_form_without_redirect_means_invalid_credentials(
         self, client, monkeypatch

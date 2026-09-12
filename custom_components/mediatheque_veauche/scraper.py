@@ -93,12 +93,18 @@ class MediathequeVeaucheClient:
         }
 
         resp = self._session.post(LOGIN_URL, data=login_data, timeout=15)
-        # Certains portails refusent par un code HTTP plutôt que par une
-        # redirection. 429 est exclu : c'est une limitation de débit, pas un
-        # refus d'identifiants, et réessayer plus tard fonctionnera.
-        if resp.status_code in (401, 403):
+        # 401 seulement : c'est un défi d'authentification explicite. Pas 403,
+        # qui est la réponse canonique d'un pare-feu applicatif ou d'une
+        # protection anti-robot — or ce client s'annonce avec un User-Agent non
+        # navigateur tout en postant un formulaire contenant un mot de passe,
+        # ce qui est précisément ce qui déclenche ces règles. Le jour où la
+        # médiathèque en active une, traiter le 403 comme un refus
+        # d'identifiants arrêterait la synchronisation de tout le monde et leur
+        # ferait ressaisir un mot de passe correct en boucle. Pas 429 non plus :
+        # c'est une limitation de débit, réessayer plus tard fonctionnera.
+        if resp.status_code == 401:
             raise InvalidCredentialsError(
-                f"Identifiants refusés : le site a répondu {resp.status_code}"
+                "Identifiants refusés : le site a répondu 401"
             )
         resp.raise_for_status()
 
@@ -142,6 +148,14 @@ class MediathequeVeaucheClient:
             soup.find(id=section)
             for section in ("profile_borrowed", "user_borrow", "family_borrow")
         ):
+            return
+
+        # Filet pour le cas « compte sans aucun emprunt servi par un gabarit qui
+        # embarque une modale de connexion sur toutes les pages ». Sans lui, une
+        # session parfaitement valide serait prise pour un refus. Ne peut que
+        # réduire les faux positifs : s'il ne correspond à rien sur ce site, le
+        # comportement est inchangé.
+        if soup.find("a", href=re.compile(r"task=user\.logout")):
             return
 
         if soup.find("input", {"type": "password"}):

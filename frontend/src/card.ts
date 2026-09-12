@@ -382,10 +382,11 @@ export class MediathequeCard extends LitElement {
         // indice — précisément ce que le bandeau de péremption évite dans le
         // cas du repli sur cache, mais ce chemin-ci ne l'atteint jamais
         // puisque l'entité est indisponible.
-        return this._renderLoader(
-          title,
-          'Données indisponibles — vérifiez l\'intégration (identifiants ?)'
-        );
+        // Texte neutre : la carte ne connaît pas la cause de l'indisponibilité.
+        // Home Assistant affiche lui-même une notification quand ce sont les
+        // identifiants ; spéculer ici enverrait chercher au mauvais endroit,
+        // par exemple après un simple redémarrage un peu lent.
+        return this._renderLoader(title, `${entityId} indisponible`);
       }
       // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
       // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
