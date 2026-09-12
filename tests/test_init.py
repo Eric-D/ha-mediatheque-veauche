@@ -12,6 +12,7 @@ from custom_components.mediatheque_veauche import (
     _owns_loan,
     _select_entry,
 )
+from custom_components.mediatheque_veauche.coordinator import MediathequeRuntimeData
 
 
 def test_declares_config_entry_only_schema():
@@ -156,15 +157,21 @@ class _Coordinator:
         self.data = data
 
 
+def _runtime(coordinator=None, client=None):
+    """runtime_data tel que le pose async_setup_entry, puis sensor.py."""
+    return MediathequeRuntimeData(
+        client=client if client is not None else object(),
+        username="u",
+        coordinator=coordinator,
+    )
+
+
 def _account(*urls, coordinator=True):
     """Entrée de configuration factice détenant les prêts donnés."""
     data = {
         "membres": {"Jean": [{"titre": f"Livre {u}", "extend_url": u} for u in urls]}
     }
-    entry = {"client": object(), "username": "u"}
-    if coordinator:
-        entry["coordinator"] = _Coordinator(data)
-    return entry
+    return _runtime(_Coordinator(data) if coordinator else None)
 
 
 class TestOwnsLoan:
@@ -179,11 +186,11 @@ class TestOwnsLoan:
         assert not _owns_loan(_account("u1", coordinator=False), "u1")
 
     def test_membres_not_a_dict(self):
-        assert not _owns_loan({"coordinator": _Coordinator({"membres": None})}, "u1")
+        assert not _owns_loan(_runtime(_Coordinator({"membres": None})), "u1")
 
     def test_loan_not_a_dict(self):
         coordinator = _Coordinator({"membres": {"Jean": ["pas un dict"]}})
-        assert not _owns_loan({"coordinator": coordinator}, "u1")
+        assert not _owns_loan(_runtime(coordinator), "u1")
 
     @pytest.mark.parametrize("membres", [None, "pasundict", 42, []])
     def test_malformed_membres_does_not_raise(self, membres):
@@ -193,11 +200,11 @@ class TestOwnsLoan:
         de prolonger.
         """
         coordinator = _Coordinator({"membres": membres})
-        assert not _owns_loan({"coordinator": coordinator}, "u1")
+        assert not _owns_loan(_runtime(coordinator), "u1")
 
     def test_loans_not_a_list(self):
         coordinator = _Coordinator({"membres": {"Jean": None}})
-        assert not _owns_loan({"coordinator": coordinator}, "u1")
+        assert not _owns_loan(_runtime(coordinator), "u1")
 
 
 class TestSelectEntry:
@@ -245,31 +252,55 @@ class TestSelectEntry:
         assert _select_entry(entries, "cible")[0] == "second"
 
 
+class _LoanEntry:
+    """Entrée de configuration dont runtime_data n'existe que s'il a été posé.
+
+    Fidèle sur le point qui compte : Home Assistant déclare `runtime_data` en
+    annotation, sans valeur par défaut, donc y accéder avant async_setup_entry
+    lève AttributeError — c'est ce qui distingue une entrée configurée d'une
+    entrée désactivée, en échec ou déchargée.
+    """
+
+    def __init__(self, entry_id, runtime=None):
+        self.entry_id = entry_id
+        if runtime is not None:
+            self.runtime_data = runtime
+
+
+class _EntryRegistry:
+    """Le pan de hass.config_entries qu'interroge _loan_entries."""
+
+    def __init__(self, entries):
+        self._entries = entries
+
+    def async_entries(self, domain):
+        assert domain == "mediatheque_veauche"
+        return list(self._entries)
+
+
 class _Hass:
     def __init__(self, entries):
-        self.data = {"mediatheque_veauche": dict(entries)}
+        self.config_entries = _EntryRegistry(
+            [_LoanEntry(entry_id, runtime) for entry_id, runtime in entries.items()]
+        )
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
 
 
 class TestLoanEntries:
-    def test_ignores_non_entry_keys(self):
-        """hass.data[DOMAIN] ne contient pas que des entrées de configuration."""
+    def test_ignores_entries_without_runtime_data(self):
+        """Une entrée désactivée ou en échec n'a pas de runtime_data.
 
-        hass = _Hass(
-            {
-                "abc": {"client": object(), "username": "u"},
-                "sans_client": {"username": "u"},
-                "pas_un_dict": "valeur",
-            }
-        )
+        C'est ce qui remplace l'ancien filtrage sur la présence de « client »
+        dans hass.data : Home Assistant entretient l'information lui-même.
+        """
+        hass = _Hass({"abc": _account("u1"), "jamais_chargee": None})
+
         assert [entry_id for entry_id, _ in _loan_entries(hass)] == ["abc"]
 
-    def test_missing_domain_key(self):
-        hass = _Hass({})
-        hass.data = {}
-        assert _loan_entries(hass) == []
+    def test_no_entry_at_all(self):
+        assert _loan_entries(_Hass({})) == []
 
 
 class _Client:
@@ -296,15 +327,14 @@ class _RecordingCoordinator(_Coordinator):
 
 
 def _wired_account(name, *urls, fails=False):
-    """Entrée complète, telle que la posent async_setup_entry (client,
-    username) puis sensor.py (coordinator)."""
-    return {
-        "client": _Client(name, fails=fails),
-        "username": name,
-        "coordinator": _RecordingCoordinator(
+    """runtime_data complet, tel que le posent async_setup_entry puis sensor.py."""
+    return MediathequeRuntimeData(
+        client=_Client(name, fails=fails),
+        username=name,
+        coordinator=_RecordingCoordinator(
             {"membres": {name: [{"titre": "Livre", "extend_url": u} for u in urls]}}
         ),
-    }
+    )
 
 
 class TestExtendLoanWiring:
@@ -330,8 +360,8 @@ class TestExtendLoanWiring:
 
         self._run(_async_extend_loan(hass, "u2"))
 
-        assert a["client"].calls == []
-        assert b["client"].calls == ["u2"]
+        assert a.client.calls == []
+        assert b.client.calls == ["u2"]
 
     def test_marks_the_owning_coordinator_only(self):
         a = _wired_account("a", "u1")
@@ -340,9 +370,9 @@ class TestExtendLoanWiring:
 
         self._run(_async_extend_loan(hass, "u2"))
 
-        assert a["coordinator"].updates == []
-        assert len(b["coordinator"].updates) == 1
-        marked = b["coordinator"].updates[0]["membres"]["b"][0]
+        assert a.coordinator.updates == []
+        assert len(b.coordinator.updates) == 1
+        marked = b.coordinator.updates[0]["membres"]["b"][0]
         assert marked["extended"] is True
         assert marked["extend_url"] is None
 
@@ -452,3 +482,74 @@ class TestUpdateEntryAndEnsureReload:
         )
 
         assert entries.scheduled == ["e1"]
+
+
+class _Services:
+    """Le pan de hass.services qu'utilise async_remove_entry."""
+
+    def __init__(self, registered=True):
+        self.registered = registered
+        self.removed: list[str] = []
+
+    def has_service(self, domain, service):
+        return self.registered
+
+    def async_remove(self, domain, service):
+        self.removed.append(service)
+
+
+class TestRemoveEntry:
+    """Le service extend_loan ne doit disparaître qu'avec le dernier compte.
+
+    Et il doit disparaître : la carte propose « Prolonger » tant que le service
+    existe, et un clic sur un service orphelin remonte une erreur opaque.
+    """
+
+    @staticmethod
+    def _run(coro):
+        import asyncio
+
+        return asyncio.run(coro)
+
+    def _remove(self, hass, entry_id):
+        entry = _LoanEntry(entry_id)
+        hass.services = _Services()
+        self._run(integration.async_remove_entry(hass, entry))
+        return hass.services.removed
+
+    def test_keeps_the_service_while_another_account_remains(self):
+        hass = _Hass({"ea": _account("u1"), "eb": _account("u2")})
+
+        assert self._remove(hass, "ea") == []
+
+    def test_removes_the_service_with_the_last_account(self):
+        hass = _Hass({"ea": _account("u1")})
+
+        assert self._remove(hass, "ea") == ["extend_loan"]
+
+    def test_the_entry_being_removed_is_still_listed(self):
+        """Home Assistant appelle async_remove_entry avant de retirer l'entrée
+        de sa collection, et son runtime_data lui survit quand elle n'était pas
+        chargée. Sans l'exclusion explicite, le service resterait en place
+        jusqu'au redémarrage."""
+        hass = _Hass({"ea": _account("u1")})
+        assert [entry_id for entry_id, _ in _loan_entries(hass)] == ["ea"]
+
+        assert self._remove(hass, "ea") == ["extend_loan"]
+
+    def test_removing_an_entry_that_never_loaded(self):
+        """Compte resté en erreur d'authentification : pas de runtime_data,
+        donc absent de _loan_entries, mais le compte valide doit garder son
+        service."""
+        hass = _Hass({"ea": _account("u1"), "jamais_chargee": None})
+
+        assert self._remove(hass, "jamais_chargee") == []
+
+    def test_service_already_absent_is_not_removed_twice(self):
+        hass = _Hass({"ea": _account("u1")})
+        entry = _LoanEntry("ea")
+        hass.services = _Services(registered=False)
+
+        self._run(integration.async_remove_entry(hass, entry))
+
+        assert hass.services.removed == []

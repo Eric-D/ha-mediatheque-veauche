@@ -15,13 +15,15 @@ rend importable sous les mocks. Même motif que `_async_extend_loan` dans
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
@@ -31,6 +33,29 @@ from .scraper import InvalidCredentialsError
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+
+
+@dataclass
+class MediathequeRuntimeData:
+    """Ce que l'intégration garde en mémoire pour un compte.
+
+    Porté par `entry.runtime_data` et non par `hass.data[DOMAIN][entry_id]` :
+    c'est ce que Home Assistant prévoit depuis 2024.6, et ça supprime deux
+    servitudes. Le dictionnaire global devait être vidé à la main au
+    déchargement — HA supprime `runtime_data` lui-même — et une entrée jamais
+    chargée y laissait son client jusqu'au redémarrage, ce qui suffisait à
+    empêcher le retrait du service `extend_loan`.
+
+    `coordinator` est posé par la plateforme sensor, qui le construit : il
+    n'existe pas encore quand async_setup_entry remplit le reste.
+    """
+
+    client: Any
+    username: str
+    coordinator: DataUpdateCoordinator | None = None
+
+
+type MediathequeConfigEntry = ConfigEntry[MediathequeRuntimeData]
 
 
 def _is_number(value: object) -> bool:

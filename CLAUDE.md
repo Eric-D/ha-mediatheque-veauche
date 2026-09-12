@@ -260,6 +260,31 @@ La règle `DTZ` de ruff verrouille le tout. Ses exemptions sont marquées
 `# noqa: DTZ007` et portent toutes sur des dates civiles — une échéance est un
 jour, pas un instant.
 
+## Données d'exécution
+
+Le client, le login et le coordinator vivent dans `entry.runtime_data`
+(`coordinator.MediathequeRuntimeData`), **pas** dans
+`hass.data[DOMAIN][entry_id]`. C'est ce que Home Assistant prévoit depuis
+2024.6, et ça supprime deux servitudes qu'on entretenait à la main :
+
+- le déchargement n'a plus rien à vider — Home Assistant supprime
+  `runtime_data` lui-même, mais **seulement si le déchargement réussit** ;
+- une entrée jamais chargée n'apparaît plus dans `_loan_entries`, puisqu'elle
+  n'a pas de `runtime_data`. Auparavant son client restait dans le
+  dictionnaire global jusqu'au redémarrage, ce qui suffisait à empêcher le
+  retrait du service `extend_loan` le jour où le dernier vrai compte était
+  supprimé.
+
+**`async_remove_entry` doit exclure l'entrée en cours de suppression**, et
+c'est contre-intuitif : Home Assistant l'appelle **avant** de la retirer de sa
+collection (`config_entries.py`, `async_remove` : `entry.async_remove()` puis
+`del self._entries[...]`), et son `runtime_data` lui survit quand elle n'était
+pas chargée, `async_unload` sortant avant pour tout état autre que `LOADED`.
+Sans cette exclusion, supprimer le dernier compte laisse le service en place.
+Couvert par `tests/test_init.py::TestRemoveEntry`.
+
+Le plancher tient : `runtime_data` et `ConfigEntry[T]` existent en 2024.11.
+
 ## Rechargement de l'entrée de configuration
 
 Un seul endroit recharge : le listener `async_update_options`
