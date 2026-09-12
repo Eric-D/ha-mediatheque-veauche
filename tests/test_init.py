@@ -89,7 +89,13 @@ class TestMarkLoanExtended:
         assert updated["membres"]["Lucas"][0]["can_extend"] is False
         assert updated["membres"]["Lucas"][0]["extended"] is True
 
-    def test_loan_without_extend_url(self):
+    def test_loan_without_extend_url_key(self):
+        """La clé est absente, pas à None : c'est le seul test du .get()."""
+        data = {"membres": {"Jean": [{"titre": "Livre", "can_extend": False}]}}
+        assert "extend_url" not in data["membres"]["Jean"][0]
+        assert _mark_loan_extended(data, "http://example.com/extend/1") is None
+
+    def test_loan_with_extend_url_none(self):
         data = {"membres": {"Jean": [_loan(None, can_extend=False)]}}
         assert _mark_loan_extended(data, "http://example.com/extend/1") is None
 
@@ -121,3 +127,6 @@ class TestMarkLoanExtended:
         assert updated["compte"] == "Jean"
         assert updated["total"] == 1
         assert updated["subscription"] == {"expiry_date": "2026-12-31"}
+        # copy.copy() passerait l'égalité ci-dessus tout en partageant les
+        # sous-dicts — exactement le partage de références qu'on interdit.
+        assert updated["subscription"] is not data["subscription"]

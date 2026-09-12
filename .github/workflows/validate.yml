@@ -40,6 +40,36 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  # Les tests tournent avec un Home Assistant simulé : ils ne peuvent pas dire
+  # qu'un module importé existe réellement. Ce job le vérifie, avec le vrai
+  # paquet installé.
+  import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install Home Assistant and integration requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install homeassistant
+          python -m pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/mediatheque_veauche/manifest.json'))['requirements']))")
+
+      - name: Import every module of the integration
+        run: |
+          python -c "
+          import importlib
+          for suffix in ('', '.scraper', '.sensor', '.config_flow'):
+              name = 'custom_components.mediatheque_veauche' + suffix
+              importlib.import_module(name)
+              print('ok', name)
+          "
+
   validate-frontend:
     runs-on: ubuntu-latest
     steps:

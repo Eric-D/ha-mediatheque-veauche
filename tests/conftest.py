@@ -19,13 +19,23 @@ import importlib.util
 import sys
 from unittest.mock import MagicMock
 
+import pytest
+
 _MOCK_ROOTS = ("homeassistant", "voluptuous")
+
+# Tout module fabriqué est enregistré ici. Le finder fait réussir n'importe
+# quel import sous ces racines, y compris une faute de frappe ou un helper
+# retiré : sans trace, la CI resterait verte pendant que l'intégration ne se
+# charge plus chez l'utilisateur. test_imports.py compare cet ensemble à une
+# liste attendue, ce qui rend un nouvel import visible sans bloquer la suite.
+MOCKED_MODULES: set[str] = set()
 
 
 class _MockLoader(importlib.abc.Loader):
     """Fabrique un module factice qui accepte n'importe quel attribut."""
 
     def create_module(self, spec):
+        MOCKED_MODULES.add(spec.name)
         module = MagicMock(name=spec.name)
         module.__name__ = spec.name
         module.__spec__ = spec
@@ -56,3 +66,22 @@ for _root in _MOCK_ROOTS:
         __import__(_root)
     except ImportError:
         sys.meta_path.insert(0, _MockFinder(_root))
+
+
+def pytest_configure() -> None:
+    """Force le chargement des modules réellement importables sous mocks.
+
+    Sans ça, l'ensemble MOCKED_MODULES dépendrait de l'ordre de collecte.
+    sensor.py et config_flow.py sont absents volontairement : ils dérivent de
+    classes Home Assistant, qu'un MagicMock ne peut pas servir de base. Leur
+    chargement est vérifié par le job « import-check » de la CI, avec un vrai
+    Home Assistant installé.
+    """
+    import custom_components.mediatheque_veauche  # noqa: F401
+    import custom_components.mediatheque_veauche.scraper  # noqa: F401
+
+
+@pytest.fixture
+def mocked_ha_modules() -> set[str]:
+    """Modules Home Assistant effectivement fabriqués par le finder."""
+    return MOCKED_MODULES

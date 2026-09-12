@@ -8,6 +8,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from custom_components.mediatheque_veauche.scraper import (
+    AuthenticationError,
     DEFAULT_ACCOUNT_NAME,
     DEFAULT_MEMBER_NAME,
     MediathequeVeaucheClient,
@@ -227,7 +228,6 @@ class TestParseLoanRow:
         assert loan["can_extend"] is False
         assert loan["extend_url"] is None
 
-    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_unreadable_due_date_keeps_days_left_none(self, client):
         row = _make_row(
             "<td>Un livre</td>"
@@ -246,6 +246,11 @@ class TestParseLoanRow:
     def test_insufficient_cells_returns_none(self, client):
         row = _make_row("<td>Seul</td><td>Deux</td>")
         assert client._parse_loan_row(row, has_emprunteur=False, default_emprunteur="X") is None
+
+    def test_insufficient_cells_with_emprunteur_returns_none(self, client):
+        """La borne est à 5 cellules quand la colonne emprunteur est présente."""
+        row = _make_row("<td>A</td><td>B</td><td>C</td><td>D</td>")
+        assert client._parse_loan_row(row, has_emprunteur=True, default_emprunteur="X") is None
 
     @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
     def test_no_extend_link(self, client):
@@ -411,6 +416,138 @@ class TestFetchSubscriptionExpiry:
         result = client._fetch_subscription_expiry()
         assert result["expiry_date"] is None
         assert result["subscriptions"] == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_all — consommateur du days_left à None
+# ---------------------------------------------------------------------------
+
+HTML_MIXED_DATES = """
+<html><body>
+<div id="profile_borrowed"><h2>DUPONT Jean</h2></div>
+<div id="user_borrow"><table><tbody>
+  <tr><td>En retard</td><td>Veauche</td><td><span class="badge">07-03-2024</span></td><td></td></tr>
+  <tr><td>Cette semaine</td><td>Veauche</td><td><span class="badge">15-03-2024</span></td><td></td></tr>
+  <tr><td>Date illisible</td><td>Veauche</td><td><span class="badge">jamais</span></td><td></td></tr>
+</tbody></table></div>
+</body></html>
+"""
+
+
+class TestFetchAll:
+    """Les compteurs doivent ignorer days_left=None sans lever.
+
+    C'est ici que vit la conséquence directe du passage de _days_until à None :
+    les gardes « is not None » dans due_this_week et overdue. Sans elles,
+    `0 <= None` lève un TypeError et tout le cycle de poll tombe.
+    """
+
+    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
+    def test_counts_ignore_unreadable_dates(self, client_with_lastname):
+        c = client_with_lastname
+        c._borrowings_html = HTML_MIXED_DATES
+        with patch.object(c, "login"), patch.object(
+            c, "_fetch_subscription_expiry", return_value={}
+        ):
+            data = c.fetch_all()
+
+        assert data["total"] == 3
+        assert data["overdue"] == 1
+        assert data["due_this_week"] == 1
+        days = sorted(
+            (loan["days_left"] for loans in data["membres"].values() for loan in loans),
+            key=lambda d: (d is None, d),
+        )
+        assert days == [-3, 5, None]
+
+
+# ---------------------------------------------------------------------------
+# extend_loan — détection de session expirée
+# ---------------------------------------------------------------------------
+
+
+class TestExtendLoan:
+    @staticmethod
+    def _session(url: str):
+        resp = type("Response", (), {
+            "url": url,
+            "status_code": 200,
+            "raise_for_status": lambda self: None,
+        })()
+        return type("Session", (), {"get": lambda self, u, timeout=15: resp})()
+
+    def test_login_redirect_raises(self, client):
+        """Un HTTP 200 renvoyant la page de connexion n'est pas un succès."""
+        client._session = self._session(
+            "https://mediatheque.veauche.fr/index.php?option=com_users&view=login"
+        )
+        with pytest.raises(AuthenticationError):
+            client.extend_loan("https://mediatheque.veauche.fr/extend/1")
+
+    def test_login_redirect_invalidates_session(self, client):
+        """Sans invalidation, la tentative suivante rejoue l'échec à l'identique."""
+        client._session = self._session(
+            "https://mediatheque.veauche.fr/index.php?option=com_users&view=login"
+        )
+        with pytest.raises(AuthenticationError):
+            client.extend_loan("https://mediatheque.veauche.fr/extend/1")
+        assert client._session is None
+
+    def test_normal_response_succeeds(self, client):
+        client._session = self._session("https://mediatheque.veauche.fr/extend/1")
+        client.extend_loan("https://mediatheque.veauche.fr/extend/1")
+        assert client._session is not None
+
+
+# ---------------------------------------------------------------------------
+# _get_book_details — mémorisation
+# ---------------------------------------------------------------------------
+
+
+class TestBookDetailsCache:
+    @staticmethod
+    def _counting_session(html: str):
+        calls = []
+
+        class _Session:
+            def get(self, url, timeout=15):
+                calls.append(url)
+                return type("Response", (), {
+                    "text": html,
+                    "raise_for_status": lambda self: None,
+                })()
+
+        return _Session(), calls
+
+    def test_successful_lookup_is_memoised(self, client):
+        html = '<html><body><img src="/images/covers/42.jpg"></body></html>'
+        client._session, calls = self._counting_session(html)
+
+        first = client._get_book_details("42")
+        second = client._get_book_details("42")
+
+        assert first["cover_url"].endswith("/images/covers/42.jpg")
+        assert second == first
+        assert len(calls) == 1, "le second appel doit venir du cache"
+
+    def test_empty_result_is_not_memoised(self, client):
+        """Un HTTP 200 sans données ne prouve rien : page de maintenance,
+        redirection rendue en 200, couverture pas encore indexée."""
+        client._session, calls = self._counting_session("<html><body></body></html>")
+
+        client._get_book_details("77")
+        client._get_book_details("77")
+
+        assert len(calls) == 2, "un résultat vide ne doit pas être figé"
+
+    def test_cache_returns_a_copy(self, client):
+        html = '<html><body><img src="/images/covers/9.jpg"></body></html>'
+        client._session, _ = self._counting_session(html)
+
+        first = client._get_book_details("9")
+        first["cover_url"] = "muté par l'appelant"
+
+        assert client._get_book_details("9")["cover_url"].endswith("/images/covers/9.jpg")
 
 
 # ---------------------------------------------------------------------------
