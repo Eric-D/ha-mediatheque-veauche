@@ -216,9 +216,11 @@ C'est pourquoi la logique en est sortie :
 - `coordinator.py` — obtention et mise en cache des données
   (`MediathequeDataSource.async_update`, `async_load_cache`,
   `is_valid_payload`). C'était une closure de `async_setup_entry`.
-- `dates.py` — calcul des délais.
 - `_async_extend_loan` dans `__init__.py`, sorti de sa closure pour la même
   raison.
+
+`dates.py` est sorti pour un autre motif — le scraper n'a pas accès à `hass`,
+cf. la section sur le fuseau horaire — mais bénéficie de la même propriété.
 
 **Ne pas y remettre de logique**, et ne rien réintroduire dans une closure de
 `async_setup_entry` : ce qui y entre devient invisible aux tests sans que rien

@@ -9,6 +9,7 @@ suite entièrement verte.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, date, datetime
 
 import pytest
@@ -59,11 +60,25 @@ class _Hass:
 class _Store:
     """Store disque : on veut savoir ce qui y est écrit, pas seulement que ça l'est."""
 
-    def __init__(self):
+    def __init__(self, content=None):
         self.saved: list[dict] = []
+        self._content = content
+        self.removed = False
+
+    async def async_load(self):
+        return self._content
 
     async def async_save(self, data):
-        self.saved.append(data)
+        # Aller-retour JSON, pour deux raisons. Le vrai Store sérialise, donc
+        # ce qui n'est pas sérialisable lève en production et doit lever ici.
+        # Et il écrit tout de suite : garder la référence vive laissait passer
+        # une inversion de l'ordre des écritures, qui aurait persisté à chaque
+        # cycle le payload du cycle précédent — un cache en retard permanent,
+        # vide au premier démarrage.
+        self.saved.append(json.loads(json.dumps(data)))
+
+    async def async_remove(self):
+        self.removed = True
 
 
 class _Client:
@@ -266,23 +281,11 @@ class TestIsValidPayload:
         assert not is_valid_payload(data)
 
 
-class _LoadableStore:
-    def __init__(self, content):
-        self._content = content
-        self.removed = False
-
-    async def async_load(self):
-        return self._content
-
-    async def async_remove(self):
-        self.removed = True
-
-
 class TestLoadCache:
     def test_returns_a_valid_cache_as_is(self):
         cache = {"data": _payload("2024-03-15"), "last_success": "hier"}
 
-        result = _run(async_load_cache(_Hass(), _LoadableStore(cache), "jean"))
+        result = _run(async_load_cache(_Hass(), _Store(cache), "jean"))
 
         assert result == cache
 
@@ -291,14 +294,23 @@ class TestLoadCache:
         à chaque écriture d'état : mieux vaut repartir à vide."""
         cache = {"data": {"membres": {"Jean": ["pas un dict"]}}, "last_success": "hier"}
 
-        result = _run(async_load_cache(_Hass(), _LoadableStore(cache), "jean"))
+        result = _run(async_load_cache(_Hass(), _Store(cache), "jean"))
 
         assert "data" not in result
         assert "last_success" not in result
 
     def test_drops_a_corrupt_container(self):
-        result = _run(async_load_cache(_Hass(), _LoadableStore("pas un dict"), "jean"))
+        result = _run(async_load_cache(_Hass(), _Store("pas un dict"), "jean"))
         assert result == {}
+
+    def test_write_order_is_observable(self):
+        """Garde-fou du double lui-même : sans copie, ce test ne peut pas
+        échouer, et une inversion des écritures passerait inaperçue."""
+        source = _source(_Client(_payload("2024-03-15")))
+
+        _run(source.async_update())
+
+        assert source.store.saved[-1]["data"]["total"] == 1
 
     def test_falls_back_on_the_legacy_cache(self, monkeypatch):
         """Le cache était indexé sur le login avant d'être indexé sur l'entry_id."""
@@ -310,6 +322,67 @@ class TestLoadCache:
 
         monkeypatch.setattr(coordinator_module, "async_take_over_legacy_cache", _legacy)
 
-        result = _run(async_load_cache(_Hass(), _LoadableStore(None), "jean"))
+        result = _run(async_load_cache(_Hass(), _Store(None), "jean"))
 
         assert result == legacy
+
+
+class TestLegacyCacheTakeover:
+    """Le cache était indexé sur le login avant de l'être sur l'entry_id.
+
+    Ces tests manquaient : monkeypatcher la reprise dans les tests
+    d'async_load_cache ne dit rien de la reprise elle-même. La remplacer par
+    « return {} » laissait les 27 tests au vert.
+    """
+
+    @staticmethod
+    def _patch_store(monkeypatch, store):
+        seen = {}
+
+        def _factory(hass, version, key):
+            seen["key"] = key
+            return store
+
+        monkeypatch.setattr(coordinator_module, "Store", _factory)
+        return seen
+
+    def test_reads_the_login_indexed_file(self, monkeypatch):
+        """Une faute de frappe sur ce nom rendrait la reprise silencieusement
+        inopérante : l'utilisateur repartirait d'un cache vide."""
+        store = _Store({"data": _payload("2024-03-15")})
+        seen = self._patch_store(monkeypatch, store)
+
+        result = _run(coordinator_module.async_take_over_legacy_cache(_Hass(), "jean"))
+
+        assert seen["key"] == "mediatheque_veauche_jean_cache"
+        assert result["data"]["total"] == 1
+
+    def test_removes_the_legacy_file(self, monkeypatch):
+        """Sans suppression, la reprise se rejouerait à chaque démarrage et
+        écraserait le cache courant par un cache figé."""
+        store = _Store({"data": _payload("2024-03-15")})
+        self._patch_store(monkeypatch, store)
+
+        _run(coordinator_module.async_take_over_legacy_cache(_Hass(), "jean"))
+
+        assert store.removed is True
+
+    def test_absent_legacy_file_is_not_removed(self, monkeypatch):
+        store = _Store(None)
+        self._patch_store(monkeypatch, store)
+
+        result = _run(coordinator_module.async_take_over_legacy_cache(_Hass(), "jean"))
+
+        assert result == {}
+        assert store.removed is False
+
+    def test_a_failing_store_is_not_fatal(self, monkeypatch):
+        """Se tromper ici ne doit coûter qu'un cycle, jamais l'intégration."""
+
+        class _Broken(_Store):
+            async def async_load(self):
+                raise OSError("disque illisible")
+
+        self._patch_store(monkeypatch, _Broken())
+
+        assert _run(coordinator_module.async_take_over_legacy_cache(_Hass(), "x")) == {}
