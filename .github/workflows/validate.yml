@@ -21,6 +21,63 @@ jobs:
         with:
           category: integration
 
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install test dependencies
+        run: pip install -r requirements_test.txt
+
+      - name: Run tests
+        run: pytest -q
+
+  # Les tests tournent avec un Home Assistant simulé : ils ne peuvent pas dire
+  # qu'un module importé existe réellement. Ce job le vérifie, avec le vrai
+  # paquet installé.
+  import-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      # Home Assistant n'est volontairement pas épinglé : ce job doit virer au
+      # rouge quand une version amont casse l'intégration. C'est le signal
+      # recherché, y compris sur l'exécution programmée quotidienne.
+      - name: Install Home Assistant and integration requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install homeassistant
+          python -c "
+          import json, pathlib
+          manifest = json.loads(pathlib.Path('custom_components/mediatheque_veauche/manifest.json').read_text())
+          pathlib.Path('manifest-requirements.txt').write_text('\n'.join(manifest['requirements']) + '\n')
+          "
+          python -m pip install -r manifest-requirements.txt
+
+      - name: Import every module of the integration
+        run: |
+          python -c "
+          import importlib
+          for suffix in ('', '.scraper', '.sensor', '.config_flow'):
+              name = 'custom_components.mediatheque_veauche' + suffix
+              importlib.import_module(name)
+              print('ok', name)
+          "
+
   validate-frontend:
     runs-on: ubuntu-latest
     steps:
