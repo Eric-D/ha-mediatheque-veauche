@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .scraper import InvalidCredentialsError
+from .migration import build_unique_id
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
@@ -28,6 +29,24 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+
+
+async def _async_take_over_legacy_cache(hass: HomeAssistant, username: str) -> dict:
+    """Récupère le cache de l'ancien nom de fichier, puis le supprime.
+
+    Se tromper ici ne coûte qu'un cycle de rafraîchissement, jamais de
+    l'historique : à défaut, le coordinator repart simplement à vide.
+    """
+    legacy = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
+    try:
+        data = await legacy.async_load() or {}
+        if data:
+            _LOGGER.info("Reprise du cache disque hérité de %s", username)
+            await legacy.async_remove()
+        return data
+    except Exception:  # noqa: BLE001 - jamais bloquant pour le setup
+        _LOGGER.exception("Reprise du cache hérité impossible")
+        return {}
 
 
 def _is_number(value: object) -> bool:
@@ -78,8 +97,13 @@ async def async_setup_entry(
 
     client = hass.data[DOMAIN][entry.entry_id]["client"]
 
-    store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
+    # Indexé sur l'entry_id et non sur le login : sinon changer de login
+    # repartait d'un cache vide, donc capteurs « unknown » jusqu'au premier
+    # fetch réussi — et « unavailable » si celui-ci échouait.
+    store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_cache")
     cached = await store.async_load() or {}
+    if not cached:
+        cached = await _async_take_over_legacy_cache(hass, username)
     if not isinstance(cached, dict):
         _LOGGER.warning("Cache disque corrompu (conteneur %s), ignoré", type(cached).__name__)
         cached = {}
@@ -223,7 +247,7 @@ class MediathequeEmpruntsTotal(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_total"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "total")
         self._attr_name = "Emprunts Médiathèque"
 
     @property
@@ -253,7 +277,7 @@ class MediathequeEmpruntsSemaine(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_due_week"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "due_week")
         self._attr_name = "Emprunts à rendre cette semaine"
 
     @property
@@ -285,7 +309,7 @@ class MediathequeEmpruntsRetard(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_overdue"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "overdue")
         self._attr_name = "Emprunts en retard"
 
     @property
@@ -314,7 +338,7 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_subscription"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "subscription")
         self._attr_name = "Fin cotisation Médiathèque"
 
     @property
@@ -349,7 +373,7 @@ class MediathequeDerniereMaj(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry, state: dict) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_last_update"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "last_update")
         self._attr_name = "Dernière MAJ Médiathèque"
         self._state = state
 

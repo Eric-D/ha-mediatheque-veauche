@@ -17,6 +17,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .migration import async_migrate_unique_ids
 from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -304,6 +305,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(
             DOMAIN, SERVICE_EXTEND_LOAN, handle_extend_loan, schema=SERVICE_EXTEND_SCHEMA
         )
+
+    # Avant la création des entités : leurs identifiants uniques dérivaient du
+    # login, donc en changer aurait créé cinq entités neuves et orpheliné les
+    # anciennes. Idempotente, donc rejouée à chaque démarrage.
+    await async_migrate_unique_ids(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

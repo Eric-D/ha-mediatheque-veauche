@@ -148,6 +148,52 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
 connue, pas invariant respecté. Les candidats évidents à l'extraction sont le
 rendu des modales et le bloc d'enregistrement de l'élément.
 
+## Identifiants uniques des entités
+
+Ils dérivent de `entry_id`, **jamais du login** (`migration.py`,
+`build_unique_id`). Les faire dépendre du login — ce qui était le cas jusqu'en
+septembre 2026 — signifie qu'en changer crée des entités neuves et orpheline les
+anciennes : tableau de bord cassé, historique perdu, automatisations muettes.
+
+`migration.py` réécrit les identifiants au format historique et tourne à chaque
+démarrage, l'opération étant idempotente. **Ne pas la retirer**, et **ne jamais
+retirer d'entrée d'`ENTITY_SUFFIXES`** : elle ne s'exécute qu'une fois chez
+chaque utilisateur, et un utilisateur qui n'a pas encore démarré depuis la mise
+à jour a encore des entités sous ces noms.
+
+La correspondance est **exacte sur le login courant**, jamais heuristique sur le
+suffixe. Un utilisateur ayant déjà changé de login a deux jeux d'entités dans la
+même entrée : les orphelines de l'ancien login, enregistrées en premier, et
+celles du login courant qui portent l'historique. Une correspondance par suffixe
+migrerait l'orpheline d'abord, lui ferait capter le nouvel identifiant, puis
+lèverait sur la vivante — laissant la plateforme sensor morte à chaque
+démarrage. Une garde de collision couvre le cas résiduel : une migration qui
+échoue proprement laisse ses capteurs à l'utilisateur.
+
+La migration tourne dans `__init__.async_setup_entry`, **pas** dans la
+plateforme : une exception y serait avalée par `entity_platform`, laissant
+l'entrée affichée « chargée » avec zéro capteur et sans réessai. Elle est aussi
+appelée par `config_flow` **avant** d'écrire un nouveau login, pendant que
+l'entrée porte encore l'ancien — sans quoi une entrée désactivée, jamais
+configurée donc jamais migrée, verrait la correspondance ne plus rien trouver.
+
+### Un résidu assumé, à ne pas « corriger »
+
+Les deux registres n'ont pas le même délai d'écriture : une seconde pour les
+entrées de configuration, dix pour le registre d'entités. Un arrêt **brutal**
+— coupure, OOM, `docker kill` — dans cette fenêtre, juste après une
+reconfiguration qui change le login, laisse sur disque le nouveau login et les
+anciens identifiants. La correspondance ne trouve alors plus rien. Un arrêt
+propre n'a pas ce problème, Home Assistant écrivant les sauvegardes différées
+sur `EVENT_HOMEASSISTANT_FINAL_WRITE`.
+
+**Ne pas chercher à fermer ce trou en mémorisant le login précédent.** Ce
+remède rouvre le défaut qu'on vient de corriger : un utilisateur ayant déjà
+changé de login sous l'ancien code a deux jeux d'entités, la migration
+reprendrait l'orpheline en premier, lui ferait capter l'identifiant, et
+abandonnerait la vivante. Le remède est plus probable que le mal — il se
+déclenche sans crash, la fenêtre ne s'ouvre qu'avec.
+
 ## Méthode de diagnostic
 
 Le chemin nominal de la carte est instrumenté à dessein (`setConfig accepté`,

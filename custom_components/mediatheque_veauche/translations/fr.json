@@ -12,7 +12,7 @@
       },
       "reconfigure": {
         "title": "Reconfigurer les identifiants",
-        "description": "Modifiez vos identifiants de la médiathèque de Veauche.",
+        "description": "Modifiez vos identifiants de la médiathèque de Veauche. Changer l'identifiant conserve l'historique des capteurs.",
         "data": {
           "username": "Identifiant",
           "password": "Mot de passe"
@@ -29,7 +29,8 @@
     "error": {
       "cannot_connect": "Impossible de se connecter à la médiathèque.",
       "invalid_auth": "Identifiants invalides.",
-      "unknown": "Erreur inattendue."
+      "unknown": "Erreur inattendue.",
+      "already_configured": "Un autre compte est déjà configuré avec cet identifiant."
     },
     "abort": {
       "already_configured": "Cette médiathèque est déjà configurée.",

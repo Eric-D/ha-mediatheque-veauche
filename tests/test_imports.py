@@ -28,6 +28,12 @@ import custom_components.mediatheque_veauche.scraper  # noqa: F401,E402
 # Surface d'import attendue de l'intégration. À mettre à jour sciemment quand
 # un import est ajouté — et à vérifier contre la documentation de Home
 # Assistant, pas seulement contre ce que le mock accepte.
+#
+# Angle mort connu : « from homeassistant.helpers import entity_registry »
+# résout par getattr sur un MagicMock, donc aucun import n'a lieu et le finder
+# ne voit rien. Écrire « import homeassistant.helpers.entity_registry as er »
+# pour rester dans le champ de cette garde. C'est aussi la forme employée pour
+# config_validation.
 EXPECTED = {
     "homeassistant",
     "homeassistant.components",
@@ -39,6 +45,7 @@ EXPECTED = {
     "homeassistant.exceptions",
     "homeassistant.helpers",
     "homeassistant.helpers.config_validation",
+    "homeassistant.helpers.entity_registry",
     "homeassistant.helpers.start",
     "voluptuous",
 }
