@@ -250,16 +250,21 @@ python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
 ruff check .
-cd frontend && npm ci && npm run typecheck && npm run lint && npm run build
-git diff --quiet custom_components/mediatheque_veauche/www/mediatheque-card.js
+(cd frontend && npm ci && npm run typecheck && npm run lint && npm run build)
+git diff --exit-code --stat custom_components/mediatheque_veauche/www/mediatheque-card.js
 ```
 
 Ce bloc reproduit les vérifications de la CI, et `tests/test_documentation.py`
 compare les deux pour qu'ils ne divergent pas — découvrir l'écart en poussant
 est le genre de friction que ce dépôt s'efforce de supprimer partout ailleurs.
 
-La dernière ligne est celle qu'on oublie le plus souvent : le bundle commité
-doit correspondre au build, et la CI échoue sinon.
+Le sous-shell est volontaire : sans lui, un build en échec laisserait le shell
+dans `frontend/`, et la ligne suivante échouerait à son tour sur un chemin
+introuvable — en masquant le vrai problème.
+
+Cette dernière ligne est celle qu'on oublie le plus souvent : le bundle commité
+doit correspondre au build, et la CI échoue sinon. `--exit-code --stat` plutôt
+que `--quiet`, qui sort en 1 sans rien afficher.
 
 Les deux commandes du milieu sont nécessaires : les dépendances runtime
 (`beautifulsoup4`, `requests`) ne sont pas recopiées dans
