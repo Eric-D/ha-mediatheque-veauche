@@ -108,7 +108,8 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   médiathèque et retombent sur une data-URI en cas d'échec (`card.ts`, gestionnaire `@error` des `<img>`).
 - **Jamais `unsafeHTML` sur du contenu venant du capteur.** Il n'y en a aucun.
   Le seul `unsafeSVG` (`card.ts`, `_renderBarcodeModal`) reçoit la sortie de `generateCode39Svg`,
-  dont l'entrée vient pourtant bien du capteur (`card.ts`, `_renderCovers`). Ce qui rend
+  dont l'entrée vient pourtant bien du capteur : `cardId` est calculé dans les
+  deux modes de rendu, `_renderList` — le mode par défaut — et `_renderCovers`. Ce qui rend
   l'ensemble sûr tient à **une seule ligne** : `helpers/barcode.ts` filtre, dans `generateCode39Svg`, par table
   blanche, et tout ce qui atteint la chaîne SVG ensuite est un entier calculé.
   C'est cette ligne qu'une refactorisation cassera sans s'en apercevoir.
@@ -135,11 +136,15 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   (`card.ts`, `updated`). C'est un contrat public pour les plugins tiers — card-mod
   notamment — sans aucun consommateur dans ce dépôt : personne ne verra sa
   disparition.
-- **Aucun timer ne survit au détachement.** `disconnectedCallback` annule le
-  retry en cours (`disconnectedCallback`), `connectedCallback` remet le quota à zéro
-  (`connectedCallback`).
+- **Aucun timer lié à un élément ne survit à son détachement.**
+  `disconnectedCallback` annule le retry en cours, `connectedCallback` remet le
+  quota à zéro. La portée est volontairement étroite : la fin de module installe
+  sept `setTimeout` pour la réparation des cartes d'erreur orphelines, qui ne
+  dépendent d'aucun élément et ne sont annulés par rien — légitime, ils sont à
+  usage unique et plafonnés à quatre secondes.
 
-`frontend/src/card.ts` fait 972 lignes, pour un objectif affiché de 300. Dette
+`frontend/src/card.ts` fait plus de 900 lignes, pour un objectif affiché de
+300. Dette
 connue, pas invariant respecté. Les candidats évidents à l'extraction sont le
 rendu des modales et le bloc d'enregistrement de l'élément.
 

@@ -362,7 +362,7 @@ export class MediathequeCard extends LitElement {
       if (!this._retry.exhausted) {
         return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
       }
-      return this._renderLoader(title, 'Home Assistant ne répond plus');
+      return this._renderLoader(title, 'Données Home Assistant indisponibles');
     }
     const state = states[entityId];
 
