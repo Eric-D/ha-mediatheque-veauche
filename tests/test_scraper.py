@@ -5,6 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 import pytest
+import requests
 from bs4 import BeautifulSoup
 
 from custom_components.mediatheque_veauche.scraper import (
@@ -449,11 +450,22 @@ class _FakeSession:
 
 
 def _response(text="", url="https://mediatheque.veauche.fr/index.php", status=200):
+    """Réponse factice fidèle sur raise_for_status.
+
+    Le stuber en no-op laissait un 403 traverser le code de production sans
+    rien lever : le test du 403 passait alors sur une AssertionError de la
+    session factice, et non par le chemin qu'il prétendait décrire.
+    """
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Error", response=self)
+
     return type("Response", (), {
         "text": text,
         "url": url,
         "status_code": status,
-        "raise_for_status": lambda self: None,
+        "raise_for_status": raise_for_status,
     })()
 
 
@@ -534,9 +546,11 @@ class TestAuthenticationErrors:
         """
         session = _FakeSession(_response(LOGIN_PAGE), _response(status=status))
         self._install(monkeypatch, session)
-        with pytest.raises(Exception) as excinfo:
+        with pytest.raises(requests.HTTPError):
             client.login()
-        assert not isinstance(excinfo.value, InvalidCredentialsError)
+        # Deux requêtes seulement : le code s'arrête sur l'erreur HTTP et ne
+        # poursuit pas vers la page des emprunts.
+        assert len(session.requests) == 2
 
     def test_account_without_loans_is_authenticated(self, client, monkeypatch):
         """Hypothèse porteuse du contrôle, figée ici.
