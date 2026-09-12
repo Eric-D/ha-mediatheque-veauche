@@ -49,11 +49,7 @@ export function renderTile(loan: Loan, onClick: () => void): TemplateResult {
   `;
 }
 
-export function renderBookRow(
-  loan: Loan,
-  showEmprunteur: boolean,
-  onClick: () => void
-): TemplateResult {
+export function renderBookRow(loan: Loan, onClick: () => void): TemplateResult {
   const chip = getDaysChip(loan.days_left);
   const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
@@ -71,9 +67,6 @@ export function renderBookRow(
       <div class="book-info">
         <div class="book-title" title=${loan.titre}>${loan.titre}</div>
         <div class="book-date">Retour : ${loan.due_date_display}</div>
-        ${showEmprunteur && loan.emprunteur
-          ? html`<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>`
-          : nothing}
         <div class="book-badges">
           <span class="badge-days" style="color:${chip.color};background:${chip.bg}">
             ${chip.text}

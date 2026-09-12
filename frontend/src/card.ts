@@ -328,7 +328,7 @@ export class MediathequeCard extends LitElement {
       mcLog('error', 'card', 'render() a throw, fallback loader : %o', e);
       // Sans ça, on reste sur l'erreur jusqu'au prochain hass utile.
       this._retry.schedule();
-      return renderLoader('Médiathèque', 'Erreur — voir console');
+      return renderLoader({ title: 'Médiathèque', message: 'Erreur — voir console' });
     }
   }
 
@@ -342,15 +342,15 @@ export class MediathequeCard extends LitElement {
       (mode === 'covers' ? 'A rendre bientôt' : 'Médiathèque de Veauche');
 
     if (!this._config) {
-      return renderLoader(title, 'En attente de configuration…');
+      return renderLoader({ title, message: 'En attente de configuration…' });
     }
     if (!this._hass) {
-      return renderLoader(title, 'Connexion à Home Assistant…');
+      return renderLoader({ title, message: 'Connexion à Home Assistant…' });
     }
 
     const entityId = this._config.entity;
     if (!entityId) {
-      return renderLoader(title, 'Sélectionnez une entité');
+      return renderLoader({ title, message: 'Sélectionnez une entité' });
     }
     const states = this._hass.states;
     if (!states) {
@@ -360,9 +360,9 @@ export class MediathequeCard extends LitElement {
       // quota de retries, afficher indéfiniment le dernier rendu ferait passer
       // des emprunts périmés pour à jour. Ce chemin l'ignorait.
       if (!this._retry.exhausted) {
-        return this._lastTemplate ?? renderLoader(title, 'En attente de Home Assistant…');
+        return this._lastTemplate ?? renderLoader({ title, message: 'En attente de Home Assistant…' });
       }
-      return renderLoader(title, 'Données Home Assistant indisponibles');
+      return renderLoader({ title, message: 'Données Home Assistant indisponibles' });
     }
     const state = states[entityId];
 
@@ -380,7 +380,7 @@ export class MediathequeCard extends LitElement {
       if (this._hasRendered && !this._retry.exhausted) {
         // Indisponibilité brève : garder le dernier rendu évite un
         // clignotement à chaque reload de l'intégration.
-        return this._lastTemplate ?? renderLoader(title);
+        return this._lastTemplate ?? renderLoader({ title });
       }
       if (this._hasRendered) {
         // Quota de retries épuisé : continuer d'afficher le dernier rendu
@@ -392,16 +392,16 @@ export class MediathequeCard extends LitElement {
         // Home Assistant affiche lui-même une notification quand ce sont les
         // identifiants ; spéculer ici enverrait chercher au mauvais endroit,
         // par exemple après un simple redémarrage un peu lent.
-        return renderLoader(title, `${entityId} indisponible`);
+        return renderLoader({ title, message: `${entityId} indisponible` });
       }
       // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
       // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
-      this._lastTemplate = renderLoader(
+      this._lastTemplate = renderLoader({
         title,
-        this._retry.exhausted
+        message: this._retry.exhausted
           ? `Données indisponibles pour ${entityId}`
-          : 'En attente des données…'
-      );
+          : 'En attente des données…',
+      });
       return this._lastTemplate;
     }
 
@@ -416,7 +416,7 @@ export class MediathequeCard extends LitElement {
         '%s ne porte ni « membres » ni « livres » : ce n\'est pas un capteur de cette intégration',
         entityId
       );
-      return renderLoader(title, `${entityId} n'est pas un capteur Médiathèque`);
+      return renderLoader({ title, message: `${entityId} n'est pas un capteur Médiathèque` });
     }
 
     this._retry.reset();
@@ -478,7 +478,13 @@ export class MediathequeCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._header(title, badgeText, highlight, cardId)}
+        ${renderHeader({
+          title,
+          badgeText,
+          highlight,
+          cardId,
+          onBarcodeClick: this._openBarcode,
+        })}
         ${renderStaleNotice(attrs)}
         ${sorted.length === 0
           ? html`<div class="empty-state">Aucun livre à rendre</div>`
@@ -524,7 +530,13 @@ export class MediathequeCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._header(title, badgeText, highlight, cardId)}
+        ${renderHeader({
+          title,
+          badgeText,
+          highlight,
+          cardId,
+          onBarcodeClick: this._openBarcode,
+        })}
         ${renderStaleNotice(attrs)}
         ${sortedMembers.length === 0
           ? html`<div class="empty-state">Aucun emprunt en cours</div>`
@@ -540,28 +552,13 @@ export class MediathequeCard extends LitElement {
                     <span class="member-name">${member}</span>
                     <span class="member-count">${loans.length}</span>
                   </div>
-                  ${sorted.map((loan) => renderBookRow(loan, false, () => this._openDetail(loan)))}
+                  ${sorted.map((loan) => renderBookRow(loan, () => this._openDetail(loan)))}
                 </div>
               `;
             })}
         ${this._renderModals(cardId)}
       </ha-card>
     `;
-  }
-
-  private _header(
-    title: string,
-    badgeText: string,
-    highlight: boolean,
-    cardId: string
-  ): TemplateResult {
-    return renderHeader({
-      title,
-      badgeText,
-      highlight,
-      cardId,
-      onBarcodeClick: this._openBarcode,
-    });
   }
 
   private _renderModals(cardId: string): TemplateResult {

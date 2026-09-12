@@ -203,6 +203,29 @@ class TestReconfigureMigratesFirst:
         )
 
 
+class TestEverySensorJoinsTheDevice:
+    """sensor.py n'est pas importable sous les mocks : on lit la source.
+
+    Un capteur qui oublierait device_info resterait orphelin, hors de l'appareil
+    qui regroupe le compte, et rien en CI ne virerait au rouge — import-check
+    prouve que le module se charge, pas que chaque entité est rattachée.
+    """
+
+    def test_all_five_sensors_declare_device_info(self):
+        source = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "custom_components/mediatheque_veauche/sensor.py"
+        ).read_text("utf-8")
+        assignments = source.count("self._attr_device_info = _device_info(entry)")
+        unique_ids = len(
+            re.findall(r'build_unique_id\(entry\.entry_id, "[^"]+"\)', source)
+        )
+        assert assignments == unique_ids, (
+            f"{assignments} capteurs rattachés à l'appareil pour {unique_ids} "
+            "entités : un capteur a été ajouté sans device_info"
+        )
+
+
 class TestSuffixesMatchTheSensors:
     """sensor.py n'est pas importable sous les mocks : on lit la source."""
 

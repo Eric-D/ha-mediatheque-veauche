@@ -10,7 +10,15 @@ import { classMap } from 'lit/directives/class-map.js';
 
 import type { FreshnessAttributes } from '../types.js';
 
-export function renderLoader(title: string, message = 'Chargement…'): TemplateResult {
+export interface LoaderOptions {
+  title: string;
+  message?: string;
+}
+
+export function renderLoader({
+  title,
+  message = 'Chargement…',
+}: LoaderOptions): TemplateResult {
   return html`
     <ha-card>
       <div class="mediatheque-header">

@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    BASE_URL,
+    BORROWINGS_URL,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
@@ -216,7 +216,7 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
         identifiers={(DOMAIN, entry.entry_id)},
         name=f"Médiathèque ({entry.data[CONF_USERNAME]})",
         manufacturer="Médiathèque de Veauche",
-        configuration_url=BASE_URL,
+        configuration_url=BORROWINGS_URL,
         entry_type=DeviceEntryType.SERVICE,
     )
 

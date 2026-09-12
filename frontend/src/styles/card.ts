@@ -100,11 +100,6 @@ export const cardStyles = css`
     color: var(--secondary-text-color);
     margin-top: 2px;
   }
-  .book-emprunteur {
-    font-size: 0.75em;
-    color: var(--secondary-text-color);
-    margin-top: 1px;
-  }
   .book-badges {
     display: flex;
     gap: 6px;
