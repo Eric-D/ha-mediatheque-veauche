@@ -1,7 +1,5 @@
 import { LitElement, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
-import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
-import { classMap } from 'lit/directives/class-map.js';
 
 import {
   ALL_BADGES,
@@ -11,7 +9,6 @@ import {
   type BadgeType,
   type CardMode,
   type DueAttributes,
-  type FreshnessAttributes,
   type HassEntityState,
   type HassLike,
   type Loan,
@@ -19,16 +16,19 @@ import {
   type MembersMap,
 } from './types.js';
 import { getDaysChip } from './helpers/days-chip.js';
-import { generateCode39Svg } from './helpers/barcode.js';
 import { RetryScheduler } from './helpers/retry.js';
+import { renderBookRow, renderTile } from './renders/book.js';
+import { renderHeader, renderLoader, renderStaleNotice } from './renders/chrome.js';
+import {
+  renderBarcodeModal,
+  renderConfirmModal,
+  renderDetailModal,
+} from './renders/modals.js';
 import { logBanner, mcLog } from './version.js';
 import { cardStyles } from './styles/card.js';
 import { modalStyles } from './styles/modal.js';
 
 import './editor.js';
-
-const PLACEHOLDER_SVG =
-  'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2252%22 height=%2276%22 viewBox=%220 0 52 76%22%3E%3Crect width=%2252%22 height=%2276%22 fill=%22%23e0e0e0%22 rx=%224%22/%3E%3Ctext x=%2226%22 y=%2242%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2220%22 fill=%22%239e9e9e%22%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E';
 
 interface GridOptions {
   columns: number;
@@ -328,7 +328,7 @@ export class MediathequeCard extends LitElement {
       mcLog('error', 'card', 'render() a throw, fallback loader : %o', e);
       // Sans ça, on reste sur l'erreur jusqu'au prochain hass utile.
       this._retry.schedule();
-      return this._renderLoader('Médiathèque', 'Erreur — voir console');
+      return renderLoader('Médiathèque', 'Erreur — voir console');
     }
   }
 
@@ -342,15 +342,15 @@ export class MediathequeCard extends LitElement {
       (mode === 'covers' ? 'A rendre bientôt' : 'Médiathèque de Veauche');
 
     if (!this._config) {
-      return this._renderLoader(title, 'En attente de configuration…');
+      return renderLoader(title, 'En attente de configuration…');
     }
     if (!this._hass) {
-      return this._renderLoader(title, 'Connexion à Home Assistant…');
+      return renderLoader(title, 'Connexion à Home Assistant…');
     }
 
     const entityId = this._config.entity;
     if (!entityId) {
-      return this._renderLoader(title, 'Sélectionnez une entité');
+      return renderLoader(title, 'Sélectionnez une entité');
     }
     const states = this._hass.states;
     if (!states) {
@@ -360,9 +360,9 @@ export class MediathequeCard extends LitElement {
       // quota de retries, afficher indéfiniment le dernier rendu ferait passer
       // des emprunts périmés pour à jour. Ce chemin l'ignorait.
       if (!this._retry.exhausted) {
-        return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
+        return this._lastTemplate ?? renderLoader(title, 'En attente de Home Assistant…');
       }
-      return this._renderLoader(title, 'Données Home Assistant indisponibles');
+      return renderLoader(title, 'Données Home Assistant indisponibles');
     }
     const state = states[entityId];
 
@@ -380,7 +380,7 @@ export class MediathequeCard extends LitElement {
       if (this._hasRendered && !this._retry.exhausted) {
         // Indisponibilité brève : garder le dernier rendu évite un
         // clignotement à chaque reload de l'intégration.
-        return this._lastTemplate ?? this._renderLoader(title);
+        return this._lastTemplate ?? renderLoader(title);
       }
       if (this._hasRendered) {
         // Quota de retries épuisé : continuer d'afficher le dernier rendu
@@ -392,11 +392,11 @@ export class MediathequeCard extends LitElement {
         // Home Assistant affiche lui-même une notification quand ce sont les
         // identifiants ; spéculer ici enverrait chercher au mauvais endroit,
         // par exemple après un simple redémarrage un peu lent.
-        return this._renderLoader(title, `${entityId} indisponible`);
+        return renderLoader(title, `${entityId} indisponible`);
       }
       // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
       // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
-      this._lastTemplate = this._renderLoader(
+      this._lastTemplate = renderLoader(
         title,
         this._retry.exhausted
           ? `Données indisponibles pour ${entityId}`
@@ -416,7 +416,7 @@ export class MediathequeCard extends LitElement {
         '%s ne porte ni « membres » ni « livres » : ce n\'est pas un capteur de cette intégration',
         entityId
       );
-      return this._renderLoader(title, `${entityId} n'est pas un capteur Médiathèque`);
+      return renderLoader(title, `${entityId} n'est pas un capteur Médiathèque`);
     }
 
     this._retry.reset();
@@ -435,49 +435,6 @@ export class MediathequeCard extends LitElement {
 
   private _lastTemplate?: TemplateResult;
   private _firstUpdateLogged = false;
-
-  private _renderLoader(title: string, message = 'Chargement…'): TemplateResult {
-    return html`
-      <ha-card>
-        <div class="mediatheque-header">
-          <span class="mediatheque-title">${title}</span>
-        </div>
-        <div style="padding:32px 16px;text-align:center">
-          <div class="mediatheque-loader"></div>
-          <div style="margin-top:12px;color:var(--secondary-text-color);font-size:0.9em">
-            ${message}
-          </div>
-        </div>
-      </ha-card>
-    `;
-  }
-
-  private _renderStaleNotice(attrs: FreshnessAttributes): TemplateResult | typeof nothing {
-    // fetch_ok=false signifie que le coordinator est retombé sur son cache : les
-    // entités restent disponibles et les données paraissent fraîches alors que
-    // days_left est figé à la date du dernier scrape.
-    if (attrs.fetch_ok !== false) return nothing;
-
-    const lastSuccess = attrs.last_success ? new Date(attrs.last_success) : null;
-    const stamp = lastSuccess?.getTime();
-    // Ce qui rend days_left faux n'est pas l'écoulement de N heures, c'est le
-    // passage de minuit : tant que la dernière synchro date d'aujourd'hui, les
-    // délais affichés restent justes même si le dernier fetch a échoué.
-    if (stamp !== undefined && !Number.isNaN(stamp)) {
-      if (lastSuccess!.toDateString() === new Date().toDateString()) return nothing;
-    }
-
-    const since =
-      stamp === undefined || Number.isNaN(stamp)
-        ? 'date inconnue'
-        : lastSuccess!.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-    return html`
-      <div class="mc-stale" role="status">
-        <span>⚠</span>
-        <span>Synchronisation en échec — données du ${since}, délais non à jour</span>
-      </div>
-    `;
-  }
 
   private _matchesBadgeFilter(loan: Loan, enabled: BadgeType[]): boolean {
     // 'not_extendable' n'est jamais renvoyé par getDaysChip() (qui ne classe
@@ -521,63 +478,15 @@ export class MediathequeCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._renderHeader(title, badgeText, highlight, cardId)}
-        ${this._renderStaleNotice(attrs)}
+        ${this._header(title, badgeText, highlight, cardId)}
+        ${renderStaleNotice(attrs)}
         ${sorted.length === 0
           ? html`<div class="empty-state">Aucun livre à rendre</div>`
           : html`<div class="book-grid">
-              ${sorted.map((loan) => this._renderTile(loan))}
+              ${sorted.map((loan) => renderTile(loan, () => this._openDetail(loan)))}
             </div>`}
         ${this._renderModals(cardId)}
       </ha-card>
-    `;
-  }
-
-  private _renderTile(loan: Loan): TemplateResult {
-    const chip = getDaysChip(loan.days_left);
-    const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
-    const days = loan.days_left;
-    const tileLabel =
-      days === null || days === undefined
-        ? '?'
-        : days < 0
-          ? `${Math.abs(days)}j`
-          : days === 0
-            ? '!'
-            : `${days}j`;
-
-    return html`
-      <button
-        class="book-tile"
-        title="${loan.titre}${loan.emprunteur ? ` — ${loan.emprunteur}` : ''}"
-        @click=${(): void => this._openDetail(loan)}
-      >
-        <img
-          class="book-tile-cover"
-          src=${coverSrc}
-          alt=""
-          loading="lazy"
-          @error=${(e: Event): void => {
-            (e.target as HTMLImageElement).src = PLACEHOLDER_SVG;
-          }}
-        />
-        <span
-          class="book-tile-badge"
-          style="color:${chip.color};background:${chip.bg}"
-          aria-label=${chip.text}
-          >${tileLabel}</span
-        >
-        ${loan.extend_disabled || loan.extended
-          ? html`<span
-              class="book-tile-corner"
-              style=${loan.extend_disabled
-                ? 'background:#b71c1c'
-                : 'background:#6a1b9a'}
-              title=${loan.extend_disabled ? 'Désactivé' : 'Non prolongeable'}
-              >✗</span
-            >`
-          : nothing}
-      </button>
     `;
   }
 
@@ -615,8 +524,8 @@ export class MediathequeCard extends LitElement {
 
     return html`
       <ha-card>
-        ${this._renderHeader(title, badgeText, highlight, cardId)}
-        ${this._renderStaleNotice(attrs)}
+        ${this._header(title, badgeText, highlight, cardId)}
+        ${renderStaleNotice(attrs)}
         ${sortedMembers.length === 0
           ? html`<div class="empty-state">Aucun emprunt en cours</div>`
           : sortedMembers.map((member) => {
@@ -631,7 +540,7 @@ export class MediathequeCard extends LitElement {
                     <span class="member-name">${member}</span>
                     <span class="member-count">${loans.length}</span>
                   </div>
-                  ${sorted.map((loan) => this._renderBookRow(loan, false))}
+                  ${sorted.map((loan) => renderBookRow(loan, false, () => this._openDetail(loan)))}
                 </div>
               `;
             })}
@@ -640,144 +549,49 @@ export class MediathequeCard extends LitElement {
     `;
   }
 
-  private _renderHeader(
+  private _header(
     title: string,
     badgeText: string,
     highlight: boolean,
     cardId: string
   ): TemplateResult {
-    return html`
-      <div class="mediatheque-header">
-        <span class="mediatheque-title">${title}</span>
-        <span class="header-right">
-          <span class=${classMap({ 'mediatheque-total': true, highlight })}>${badgeText}</span>
-          ${cardId
-            ? html`<button
-                class="mc-barcode-btn"
-                title="Ma carte"
-                @click=${this._openBarcode}
-              >
-                |||
-              </button>`
-            : nothing}
-        </span>
-      </div>
-    `;
-  }
-
-  private _renderBookRow(loan: Loan, showEmprunteur: boolean): TemplateResult {
-    const chip = getDaysChip(loan.days_left);
-    const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
-
-    return html`
-      <div class="book-row">
-        <div class="book-cover-wrapper" @click=${(): void => this._openDetail(loan)}>
-          <img
-            class="book-cover"
-            src=${coverSrc}
-            alt=""
-            loading="lazy"
-            @error=${(e: Event): void => {
-              (e.target as HTMLImageElement).src = PLACEHOLDER_SVG;
-            }}
-          />
-        </div>
-        <div class="book-info">
-          <div class="book-title" title=${loan.titre}>${loan.titre}</div>
-          <div class="book-date">Retour : ${loan.due_date_display}</div>
-          ${showEmprunteur && loan.emprunteur
-            ? html`<div class="book-emprunteur">Emprunteur : ${loan.emprunteur}</div>`
-            : nothing}
-          <div class="book-badges">
-            <span class="badge-days" style="color:${chip.color};background:${chip.bg}">
-              ${chip.text}
-            </span>
-            ${loan.extend_disabled
-              ? html`<span class="badge-days" style="color:#b71c1c;background:#ffcdd2"
-                  >✗ Désactivé</span
-                >`
-              : loan.extended
-                ? html`<span class="badge-days" style="color:#6a1b9a;background:#e1bee7"
-                    >✗ Non prolongeable</span
-                  >`
-                : nothing}
-          </div>
-        </div>
-      </div>
-    `;
+    return renderHeader({
+      title,
+      badgeText,
+      highlight,
+      cardId,
+      onBarcodeClick: this._openBarcode,
+    });
   }
 
   private _renderModals(cardId: string): TemplateResult {
     return html`
-      ${this._detailLoan ? this._renderDetailModal(this._detailLoan) : nothing}
-      ${this._confirmExtend ? this._renderConfirmModal(this._confirmExtend.loan) : nothing}
-      ${this._barcodeOpen && cardId ? this._renderBarcodeModal(cardId) : nothing}
+      ${this._detailLoan
+        ? renderDetailModal({
+            loan: this._detailLoan,
+            onOverlayClick: this._onOverlayClick,
+            onClose: this._closeDetail,
+            onExtend: (): void => this._askExtend(this._detailLoan!),
+          })
+        : nothing}
+      ${this._confirmExtend
+        ? renderConfirmModal({
+            loan: this._confirmExtend.loan,
+            onOverlayClick: this._onConfirmOverlayClick,
+            onCancel: this._closeConfirm,
+            onConfirm: this._confirmExtendNow,
+          })
+        : nothing}
+      ${this._barcodeOpen && cardId
+        ? renderBarcodeModal({
+            cardId,
+            onOverlayClick: this._onBarcodeOverlayClick,
+            onClose: this._closeBarcode,
+          })
+        : nothing}
     `;
   }
 
-  private _renderDetailModal(loan: Loan): TemplateResult {
-    const cover = loan.cover_url || PLACEHOLDER_SVG;
-    return html`
-      <div class="mc-modal-overlay active" @click=${this._onOverlayClick}>
-        <div class="mc-modal">
-          <div class="mc-modal-body mc-modal-body-top">
-            <div class="mc-modal-title">${loan.titre}</div>
-          </div>
-          <img class="mc-modal-cover" src=${cover} alt="" />
-          <div class="mc-modal-body">
-            ${loan.isbn
-              ? html`<div class="mc-modal-isbn">ISBN : ${loan.isbn}</div>`
-              : nothing}
-            <div class="mc-modal-actions">
-              <button class="mc-modal-btn mc-modal-btn-close" @click=${this._closeDetail}>
-                Fermer
-              </button>
-              ${loan.can_extend
-                ? html`<button
-                    class="mc-modal-btn mc-modal-btn-extend"
-                    @click=${(): void => this._askExtend(loan)}
-                  >
-                    Prolonger
-                  </button>`
-                : nothing}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private _renderConfirmModal(loan: Loan): TemplateResult {
-    return html`
-      <div class="mc-confirm-overlay active" @click=${this._onConfirmOverlayClick}>
-        <div class="mc-confirm-dialog">
-          <div class="mc-confirm-icon">↻</div>
-          <div class="mc-confirm-title">Prolonger cet emprunt ?</div>
-          <div class="mc-confirm-text">${loan.titre}</div>
-          <div class="mc-confirm-actions">
-            <button class="mc-modal-btn-cancel" @click=${this._closeConfirm}>Annuler</button>
-            <button class="mc-modal-btn-confirm" @click=${this._confirmExtendNow}>
-              Confirmer
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private _renderBarcodeModal(cardId: string): TemplateResult {
-    const svg = generateCode39Svg(cardId);
-    return html`
-      <div class="mc-barcode-overlay active" @click=${this._onBarcodeOverlayClick}>
-        <div class="mc-barcode-dialog">
-          <h3>Ma carte</h3>
-          <div class="mc-barcode-id">${cardId}</div>
-          <div class="mc-barcode-svg">${unsafeSVG(svg)}</div>
-          <button class="mc-barcode-close" @click=${this._closeBarcode}>Fermer</button>
-        </div>
-      </div>
-    `;
-  }
 
   private _openDetail = (loan: Loan): void => {
     this._detailLoan = loan;
