@@ -5,15 +5,14 @@ import copy
 import logging
 from pathlib import Path
 
+import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN

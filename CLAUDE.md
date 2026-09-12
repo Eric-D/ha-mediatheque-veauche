@@ -222,6 +222,21 @@ main. `tests/test_manifest.py` vérifie qu'ils restent synchronisés — une
 substitution qui ne matche plus échoue silencieusement, et sur `CARD_VERSION`
 ça ferait resservir un bundle périmé derrière un cache-buster frais.
 
+## Linters
+
+`ruff check custom_components tests scripts` — configuré dans `pyproject.toml`,
+exécuté en CI. Longueur de ligne à 100 et non aux 88 de Home Assistant core :
+le code a été écrit sans linter, aucune ligne ne dépasse cette valeur, et
+reformater une trentaine de lignes dans la PR qui introduit l'outil aurait noyé
+les vraies corrections.
+
+**Pas d'ESLint côté TypeScript, et ce n'est pas un oubli** : `typescript-eslint`
+déclare une plage de pairs `>=4.8.4 <6.1.0` et ne supporte donc pas encore
+TypeScript 7, adopté ici. L'installer demanderait `--force` — outillage
+potentiellement cassé sur la syntaxe TS 7 — ou de rétrograder TypeScript. À
+reprendre quand le support arrivera. En attendant, `tsc` tourne en mode strict
+avec `noUnusedLocals` et `noUnusedParameters`, ce qui couvre une bonne part.
+
 ## Exécuter les tests
 
 ```
@@ -229,6 +244,7 @@ pip install -r requirements_test.txt
 python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
+ruff check custom_components tests scripts
 ```
 
 Les deux commandes du milieu sont nécessaires : les dépendances runtime

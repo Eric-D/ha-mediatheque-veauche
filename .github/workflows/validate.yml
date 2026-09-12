@@ -59,6 +59,9 @@ jobs:
           python scripts/manifest_requirements.py
           python -m pip install -r manifest-requirements.txt
 
+      - name: Lint
+        run: ruff check custom_components tests scripts
+
       - name: Run tests
         run: pytest -q
 

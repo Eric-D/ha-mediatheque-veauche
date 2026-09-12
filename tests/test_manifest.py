@@ -62,7 +62,7 @@ class TestVersionsAreSynchronised:
     def test_card_version_matches_manifest(self):
         from custom_components.mediatheque_veauche import CARD_VERSION
 
-        assert CARD_VERSION == MANIFEST["version"]
+        assert MANIFEST["version"] == CARD_VERSION
 
     def test_frontend_constant_matches_manifest(self):
         source = (ROOT / "frontend/src/version.ts").read_text("utf-8")

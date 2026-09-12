@@ -10,8 +10,6 @@ CI, qui installe Home Assistant, peut dire qu'un module existe vraiment.
 """
 from __future__ import annotations
 
-import pytest
-
 # Import au niveau module, et non dans un pytest_configure : une erreur
 # d'import réelle doit rester une erreur de collecte lisible, pas un
 # INTERNALERROR de pytest sans aucun test exécuté. C'est aussi ce qui rend
@@ -22,6 +20,8 @@ import pytest
 # classes Home Assistant, qu'un MagicMock ne peut pas servir de base. Leur
 # chargement est vérifié par le job « import-check » de la CI.
 import homeassistant.exceptions  # noqa: E402
+import pytest
+
 import custom_components.mediatheque_veauche as integration  # noqa: E402
 import custom_components.mediatheque_veauche.scraper  # noqa: F401,E402
 

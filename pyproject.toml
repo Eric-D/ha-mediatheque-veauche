@@ -1,3 +1,20 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+# 100 plutôt que les 88 de Home Assistant core : le code a été écrit sans
+# linter et aucune ligne ne dépasse cette valeur. Reformater une trentaine de
+# lignes dans la PR qui introduit l'outil noierait les vraies corrections.
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]

@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import logging
 
+import homeassistant.helpers.entity_registry as er
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.entity_registry as er
 
 from .const import CONF_USERNAME, DOMAIN
 

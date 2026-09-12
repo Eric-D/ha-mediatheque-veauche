@@ -9,3 +9,4 @@
 # les tests ne portant que sur le scraping et les fonctions pures. Le job
 # « import-check » de la CI l'installe, lui, pour de vrai.
 pytest>=8.0.0
+ruff>=0.16.0

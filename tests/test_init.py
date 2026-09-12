@@ -1,10 +1,10 @@
 """Tests pour __init__.py de l'intégration Médiathèque de Veauche."""
 from __future__ import annotations
 
-import custom_components.mediatheque_veauche as integration
 import pytest
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
+import custom_components.mediatheque_veauche as integration
 from custom_components.mediatheque_veauche import (
     _async_extend_loan,
     _loan_entries,
