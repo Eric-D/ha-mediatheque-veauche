@@ -1,6 +1,11 @@
-# Dépendances pour exécuter la suite de tests.
-# Home Assistant n'y figure pas volontairement : conftest.py le simule, les
-# tests ne portant que sur le scraping et les fonctions pures.
+# Outillage de test uniquement.
+#
+# Les dépendances runtime (beautifulsoup4, requests) ne sont PAS recopiées
+# ici : elles viennent du manifeste via scripts/manifest_requirements.py, pour
+# qu'un bump du manifeste ne laisse pas la CI valider contre un plancher
+# périmé.
+#
+# Home Assistant en est absent volontairement : tests/conftest.py le simule,
+# les tests ne portant que sur le scraping et les fonctions pures. Le job
+# « import-check » de la CI l'installe, lui, pour de vrai.
 pytest>=8.0.0
-beautifulsoup4>=4.12.0
-requests>=2.28.0
