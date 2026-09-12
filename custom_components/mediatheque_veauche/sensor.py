@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from .dates import with_days_left
 from .migration import build_unique_id
 from .scraper import InvalidCredentialsError
 
@@ -118,13 +119,17 @@ async def async_setup_entry(
     async def async_update_data() -> dict:
         """Fetch data from the library."""
         try:
-            data = await hass.async_add_executor_job(client.fetch_all)
+            raw = await hass.async_add_executor_job(client.fetch_all)
             state["last_success"] = dt_util.utcnow().isoformat()
             # Le cache disque reçoit la sortie brute du scraper : y écrire les
-            # marqueurs de fraîcheur les figerait pour la prochaine relecture.
-            cached["data"] = data
+            # marqueurs de fraîcheur — ou les délais, qui dépendent du jour —
+            # les figerait pour la prochaine relecture.
+            cached["data"] = raw
             cached["last_success"] = state["last_success"]
             await store.async_save(cached)
+            # dt_util.now() et non date.today() : le fuseau est celui configuré
+            # dans Home Assistant, pas celui du système hôte.
+            data = with_days_left(raw, dt_util.now().date())
             _LOGGER.info(
                 "Données récupérées: %d emprunts, %d à rendre cette semaine, %d en retard",
                 data.get("total", 0),
@@ -153,8 +158,10 @@ async def async_setup_entry(
                 # coordinator.data plutôt que cached["data"] : il porte les
                 # prolongations marquées en mémoire depuis le dernier fetch.
                 base = coordinator.data if coordinator.data else cached["data"]
+                # Recalculé ici aussi : c'est le seul chemin où les données
+                # peuvent traverser un minuit sans nouveau scrape.
                 return {
-                    **base,
+                    **with_days_left(base, dt_util.now().date()),
                     "last_success": state["last_success"],
                     "fetch_ok": False,
                     "last_error_at": dt_util.utcnow().isoformat(),
@@ -183,7 +190,7 @@ async def async_setup_entry(
         # démarrage de HA dont le cache a plus de deux heures, pendant tout le
         # temps du premier refresh.
         coordinator.async_set_updated_data({
-            **cached["data"],
+            **with_days_left(cached["data"], dt_util.now().date()),
             "last_success": state["last_success"],
         })
 
@@ -374,7 +381,9 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
             iso_date = sub.get("expiry_date")
             if iso_date:
                 try:
-                    return datetime.strptime(iso_date, "%Y-%m-%d").date()
+                    # Naïf à dessein : ce capteur est de device_class DATE, sa
+                    # valeur est un jour civil et non un instant.
+                    return datetime.strptime(iso_date, "%Y-%m-%d").date()  # noqa: DTZ007
                 except ValueError:
                     pass
         return None

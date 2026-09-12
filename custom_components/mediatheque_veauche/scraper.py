@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime
+from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -243,7 +243,7 @@ class MediathequeVeaucheClient:
     def _parse_date(date_str: str) -> str:
         """Parse 'DD-MM-YYYY' to 'YYYY-MM-DD' ISO format."""
         try:
-            dt = datetime.strptime(date_str.strip(), "%d-%m-%Y")
+            dt = datetime.strptime(date_str.strip(), "%d-%m-%Y")  # noqa: DTZ007
             return dt.strftime("%Y-%m-%d")
         except ValueError:
             return date_str
@@ -252,24 +252,10 @@ class MediathequeVeaucheClient:
     def _format_date_display(iso_date: str) -> str:
         """Format 'YYYY-MM-DD' to 'DD mois YYYY' in French."""
         try:
-            dt = datetime.strptime(iso_date, "%Y-%m-%d")
+            dt = datetime.strptime(iso_date, "%Y-%m-%d")  # noqa: DTZ007
             return f"{dt.day} {MONTHS_FR[dt.month]} {dt.year}"
         except (ValueError, IndexError):
             return iso_date
-
-    @staticmethod
-    def _days_until(iso_date: str) -> int | None:
-        """Calculate days until the given ISO date. Negative if overdue.
-
-        Renvoie None si la date est illisible : 0 signifierait « à rendre
-        aujourd'hui », c'est-à-dire une information fausse affichée en rouge.
-        """
-        try:
-            due = datetime.strptime(iso_date, "%Y-%m-%d").date()
-            return (due - date.today()).days
-        except ValueError:
-            _LOGGER.warning("Date d'échéance illisible: %r", iso_date)
-            return None
 
     def _parse_loan_row(
         self, row, has_emprunteur: bool, default_emprunteur: str
@@ -317,7 +303,6 @@ class MediathequeVeaucheClient:
         badge = date_cell.find("span", class_="badge")
         date_str = badge.get_text(strip=True) if badge else date_cell.get_text(strip=True)
         due_date = self._parse_date(date_str)
-        days_left = self._days_until(due_date)
 
         # Extend
         extend_cell = cells[idx] if idx < len(cells) else None
@@ -359,7 +344,6 @@ class MediathequeVeaucheClient:
             "book_id": book_id,
             "due_date": due_date,
             "due_date_display": self._format_date_display(due_date),
-            "days_left": days_left,
             "can_extend": can_extend,
             "extended": extended,
             "extend_disabled": extend_disabled,
@@ -430,7 +414,6 @@ class MediathequeVeaucheClient:
         result = {
             "expiry_date": None,
             "expiry_date_display": None,
-            "days_left": None,
             "subscriptions": [],
         }
         try:
@@ -467,7 +450,6 @@ class MediathequeVeaucheClient:
             if latest_date:
                 result["expiry_date"] = latest_date
                 result["expiry_date_display"] = self._format_date_display(latest_date)
-                result["days_left"] = self._days_until(latest_date)
 
         except Exception as exc:
             _LOGGER.warning("Impossible de récupérer la date de cotisation: %s", exc)
@@ -499,20 +481,10 @@ class MediathequeVeaucheClient:
         self.login()
         data = self.fetch_borrowings()
 
-        # Compute due_this_week and overdue counts
-        all_loans = [
-            loan for loans in data["membres"].values() for loan in loans
-        ]
-        data["due_this_week"] = sum(
-            1
-            for loan in all_loans
-            if loan.get("days_left") is not None and 0 <= loan["days_left"] <= 7
-        )
-        data["overdue"] = sum(
-            1
-            for loan in all_loans
-            if loan.get("days_left") is not None and loan["days_left"] < 0
-        )
+        # due_this_week, overdue et days_left sont dérivés de la date du jour :
+        # ils sont posés par dates.with_days_left au moment de servir les
+        # données, dans le fuseau de Home Assistant. Les calculer ici les
+        # figerait à l'instant du scrape, dans le fuseau de l'hôte.
 
         # Fetch subscription info
         data["subscription"] = self._fetch_subscription_expiry()

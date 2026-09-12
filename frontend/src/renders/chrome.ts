@@ -39,14 +39,16 @@ export function renderStaleNotice(
 ): TemplateResult | typeof nothing {
   // fetch_ok=false signifie que le coordinator est retombé sur son cache : les
   // entités restent disponibles et les données paraissent fraîches alors que
-  // days_left est figé à la date du dernier scrape.
+  // la liste date du dernier scrape — un livre rendu depuis y figure encore.
+  // Les délais, eux, sont recalculés à chaque cycle côté intégration
+  // (`dates.with_days_left`) : ce sont les emprunts qui sont périmés, pas les
+  // décomptes.
   if (attrs.fetch_ok !== false) return nothing;
 
   const lastSuccess = attrs.last_success ? new Date(attrs.last_success) : null;
   const stamp = lastSuccess?.getTime();
-  // Ce qui rend days_left faux n'est pas l'écoulement de N heures, c'est le
-  // passage de minuit : tant que la dernière synchro date d'aujourd'hui, les
-  // délais affichés restent justes même si le dernier fetch a échoué.
+  // Tant que la dernière synchro date d'aujourd'hui, l'écart avec la réalité
+  // reste celui d'une journée de bibliothèque : pas de quoi alerter.
   if (stamp !== undefined && !Number.isNaN(stamp)) {
     if (lastSuccess!.toDateString() === new Date().toDateString()) return nothing;
   }
@@ -58,7 +60,7 @@ export function renderStaleNotice(
   return html`
     <div class="mc-stale" role="status">
       <span>⚠</span>
-      <span>Synchronisation en échec — données du ${since}, délais non à jour</span>
+      <span>Synchronisation en échec — liste des emprunts du ${since}</span>
     </div>
   `;
 }

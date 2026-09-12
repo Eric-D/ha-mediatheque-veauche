@@ -68,7 +68,7 @@ var at=Object.defineProperty;var dt=Object.getOwnPropertyDescriptor;var A=(s,e,t
   `}function we(s){if(s.fetch_ok!==!1)return p;let e=s.last_success?new Date(s.last_success):null,t=e?.getTime();if(t!==void 0&&!Number.isNaN(t)&&e.toDateString()===new Date().toDateString())return p;let r=t===void 0||Number.isNaN(t)?"date inconnue":e.toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"});return u`
     <div class="mc-stale" role="status">
       <span>⚠</span>
-      <span>Synchronisation en échec — données du ${r}, délais non à jour</span>
+      <span>Synchronisation en échec — liste des emprunts du ${r}</span>
     </div>
   `}function Se({title:s,badgeText:e,highlight:t,cardId:r,onBarcodeClick:i}){return u`
     <div class="mediatheque-header">
