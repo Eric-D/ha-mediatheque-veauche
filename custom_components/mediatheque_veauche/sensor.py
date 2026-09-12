@@ -6,8 +6,9 @@ import logging
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
@@ -18,6 +19,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .scraper import InvalidCredentialsError
+from .migration import build_unique_id, migrated_unique_id
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
@@ -77,6 +79,11 @@ async def async_setup_entry(
     )
 
     client = hass.data[DOMAIN][entry.entry_id]["client"]
+
+    # Avant toute création d'entité : les identifiants uniques dérivaient du
+    # login, donc en changer aurait créé cinq entités neuves et orphelinné les
+    # anciennes. Rejouable à chaque démarrage, la migration étant idempotente.
+    await _async_migrate_unique_ids(hass, entry)
 
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
     cached = await store.async_load() or {}
@@ -177,6 +184,24 @@ async def async_setup_entry(
     )
 
 
+async def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Réécrit les identifiants uniques hérités du login vers l'entry_id."""
+
+    @callback
+    def _migrate(registry_entry: er.RegistryEntry) -> dict | None:
+        new_unique_id = migrated_unique_id(entry.entry_id, registry_entry.unique_id)
+        if new_unique_id is None:
+            return None
+        _LOGGER.info(
+            "Migration de l'identifiant unique %s vers %s",
+            registry_entry.unique_id,
+            new_unique_id,
+        )
+        return {"new_unique_id": new_unique_id}
+
+    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
+
+
 class _MediathequeBase(CoordinatorEntity, SensorEntity):
     """Base commune : expose la fraîcheur des données à la carte."""
 
@@ -223,7 +248,7 @@ class MediathequeEmpruntsTotal(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_total"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "total")
         self._attr_name = "Emprunts Médiathèque"
 
     @property
@@ -253,7 +278,7 @@ class MediathequeEmpruntsSemaine(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_due_week"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "due_week")
         self._attr_name = "Emprunts à rendre cette semaine"
 
     @property
@@ -285,7 +310,7 @@ class MediathequeEmpruntsRetard(_MediathequeBase):
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._username = entry.data[CONF_USERNAME]
-        self._attr_unique_id = f"{DOMAIN}_{self._username}_overdue"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "overdue")
         self._attr_name = "Emprunts en retard"
 
     @property
@@ -314,7 +339,7 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_subscription"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "subscription")
         self._attr_name = "Fin cotisation Médiathèque"
 
     @property
@@ -349,7 +374,7 @@ class MediathequeDerniereMaj(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry, state: dict) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{entry.data[CONF_USERNAME]}_last_update"
+        self._attr_unique_id = build_unique_id(entry.entry_id, "last_update")
         self._attr_name = "Dernière MAJ Médiathèque"
         self._state = state
 

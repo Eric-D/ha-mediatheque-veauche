@@ -126,7 +126,13 @@ Deux conséquences à connaître :
 - **La synchronisation ne redémarre pas toute seule.** Home Assistant cesse de replanifier les mises à jour jusqu'à ce que la reconnexion aboutisse — c'est voulu, réessayer avec un mot de passe refusé ne sert à rien et risquerait de faire bloquer le compte.
 - **Les cinq capteurs deviennent indisponibles**, y compris « Fin cotisation » et « Dernière MAJ », qui ne dépendent pourtant pas des identifiants. Une automatisation qui lit `sensor.emprunts_mediatheque` échouera pendant cette période : pensez à la protéger par `has_value()` ou `states(...) not in ['unavailable', 'unknown']`.
 
-Si c'est votre **identifiant** qui a changé — carte renouvelée, numéro différent — le formulaire de reconnexion ne suffira pas : il ne demande que le mot de passe. Passez par **Reconfigurer** dans le menu de l'intégration.
+Si c'est votre **identifiant** qui a changé — carte renouvelée, numéro différent — le formulaire de reconnexion ne suffira pas : il ne demande que le mot de passe. Passez par **Reconfigurer** dans le menu de l'intégration, qui accepte les deux.
+
+## Changer d'identifiant ou de mot de passe
+
+**Reconfigurer** dans le menu de l'intégration accepte les deux champs, et **l'historique des capteurs est conservé** même si l'identifiant change : leurs identifiants internes ne dépendent pas du login. Le tableau de bord, les automatisations et les statistiques continuent de fonctionner sans rien modifier.
+
+Un identifiant déjà utilisé par un autre compte configuré est refusé.
 
 Les autres pannes — site injoignable, portail en maintenance, page de connexion modifiée — ne déclenchent **pas** cette demande : elles sont réessayées, et les données du cache restent affichées avec un bandeau d'avertissement si elles datent d'un jour antérieur.
 

@@ -101,17 +101,26 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
 
         if user_input is not None:
-            error = await self._async_validate(
-                user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
-            )
-            if error:
-                errors["base"] = error
+            new_username = user_input[CONF_USERNAME]
+            if self._username_taken_by_another_entry(entry, new_username):
+                errors["base"] = "already_configured"
             else:
-                return self.async_update_reload_and_abort(
-                    entry,
-                    title=f"Médiathèque ({user_input[CONF_USERNAME]})",
-                    data_updates=user_input,
+                error = await self._async_validate(
+                    new_username, user_input[CONF_PASSWORD]
                 )
+                if error:
+                    errors["base"] = error
+                else:
+                    # unique_id suit l'identifiant : sans ça, une entrée
+                    # ultérieure portant le nouveau login ne serait pas détectée
+                    # comme doublon. Les identifiants uniques des entités, eux,
+                    # dérivent de l'entry_id et ne bougent pas.
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        unique_id=new_username,
+                        title=f"Médiathèque ({new_username})",
+                        data_updates=user_input,
+                    )
 
         current_username = entry.data.get(CONF_USERNAME, "")
         return self.async_show_form(
@@ -123,6 +132,19 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    def _username_taken_by_another_entry(
+        self, entry: ConfigEntry, username: str
+    ) -> bool:
+        """Une autre entrée utilise-t-elle déjà cet identifiant ?
+
+        _abort_if_unique_id_configured ne convient pas : il refuserait aussi
+        l'entrée qu'on est en train de reconfigurer.
+        """
+        return any(
+            other.entry_id != entry.entry_id and other.unique_id == username
+            for other in self._async_current_entries()
         )
 
     async def async_step_reauth(

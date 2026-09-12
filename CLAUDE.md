@@ -148,6 +148,22 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
 connue, pas invariant respecté. Les candidats évidents à l'extraction sont le
 rendu des modales et le bloc d'enregistrement de l'élément.
 
+## Identifiants uniques des entités
+
+Ils dérivent de `entry_id`, **jamais du login** (`migration.py`,
+`build_unique_id`). Les faire dépendre du login — ce qui était le cas jusqu'en
+septembre 2026 — signifie qu'en changer crée des entités neuves et orpheline les
+anciennes : tableau de bord cassé, historique perdu, automatisations muettes.
+
+`migration.py` réécrit les identifiants au format historique et tourne à chaque
+démarrage, l'opération étant idempotente. **Ne pas la retirer** : elle ne
+s'exécute qu'une fois chez chaque utilisateur, et un utilisateur qui n'aurait
+pas encore démarré depuis la mise à jour perdrait son historique.
+
+Les suffixes sont essayés du plus long au plus court — `last_update` avant
+`update` — et `tests/test_migration.py` vérifie que tout suffixe utilisé par un
+capteur figure bien dans `ENTITY_SUFFIXES`.
+
 ## Méthode de diagnostic
 
 Le chemin nominal de la carte est instrumenté à dessein (`setConfig accepté`,
