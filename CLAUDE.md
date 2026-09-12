@@ -224,7 +224,7 @@ substitution qui ne matche plus échoue silencieusement, et sur `CARD_VERSION`
 
 ## Linters
 
-`ruff check custom_components tests scripts` — configuré dans `pyproject.toml`,
+`ruff check .` — configuré dans `pyproject.toml`,
 exécuté en CI. Longueur de ligne à 100 et non aux 88 de Home Assistant core :
 le code a été écrit sans linter, aucune ligne ne dépasse cette valeur, et
 reformater une trentaine de lignes dans la PR qui introduit l'outil aurait noyé
@@ -249,8 +249,13 @@ pip install -r requirements_test.txt
 python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
-ruff check custom_components tests scripts
+ruff check .
+cd frontend && npm run lint
 ```
+
+Ce sont exactement les commandes de la CI, et `tests/test_documentation.py`
+vérifie qu'elles ne divergent pas — découvrir l'écart en poussant est le genre
+de friction que ce dépôt s'efforce de supprimer partout ailleurs.
 
 Les deux commandes du milieu sont nécessaires : les dépendances runtime
 (`beautifulsoup4`, `requests`) ne sont pas recopiées dans
