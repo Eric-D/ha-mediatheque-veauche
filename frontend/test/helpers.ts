@@ -12,6 +12,8 @@ Lit serait chargé avant que `HTMLElement` existe.
 */
 import { render, type TemplateResult, type nothing } from 'lit';
 
+import type { Loan } from '../src/types.ts';
+
 /** `nothing` est accepté : renderStaleNotice le renvoie quand il n'y a rien à
     dire, et c'est un cas que les tests doivent pouvoir monter. */
 export function mount(template: TemplateResult | typeof nothing): HTMLElement {
@@ -32,8 +34,11 @@ export function click(host: ParentNode, selector: string): void {
   (found as HTMLElement).dispatchEvent(new Event('click', { bubbles: true }));
 }
 
-/** Prêt complet : chaque test ne surcharge que ce qu'il regarde. */
-export function loan(overrides: Record<string, unknown> = {}) {
+/** Prêt complet : chaque test ne surcharge que ce qu'il regarde.
+
+    Typé, et non `as never` : si `Loan` gagne un champ requis, c'est ici que ça
+    doit se voir, à la compilation. */
+export function loan(overrides: Partial<Loan> = {}): Loan {
   return {
     titre: 'Le Petit Prince',
     book_id: '123',
@@ -48,5 +53,5 @@ export function loan(overrides: Record<string, unknown> = {}) {
     isbn: null,
     emprunteur: 'Jean',
     ...overrides,
-  } as never;
+  };
 }

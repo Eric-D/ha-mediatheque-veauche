@@ -53,10 +53,16 @@ class TestDocumentedCommands:
         assert "ruff check" in BLOCK
 
     def test_every_npm_script_of_the_ci_is_documented(self):
-        """typecheck, lint et build — build est le plus souvent oublié."""
-        ci_scripts = set(re.findall(r"npm run (\w+)", WORKFLOW))
+        """typecheck, lint, test et build — build est le plus souvent oublié.
+
+        « npm run » est optionnel dans le motif : npm accepte « npm test »
+        comme raccourci, et la CI l'écrivait ainsi — ce qui faisait passer ce
+        test à côté du seul script ajouté depuis qu'il existe.
+        """
+        pattern = r"npm (?:run )?(\w+)"
+        ci_scripts = set(re.findall(pattern, WORKFLOW)) - {"ci"}
         assert ci_scripts, "aucun script npm dans le workflow"
-        missing = sorted(ci_scripts - set(re.findall(r"npm run (\w+)", BLOCK)))
+        missing = sorted(ci_scripts - set(re.findall(pattern, BLOCK)))
         assert not missing, (
             f"scripts npm lancés par la CI et absents du bloc : {missing}"
         )

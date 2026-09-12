@@ -2,7 +2,12 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { renderBarcodeModal, renderConfirmModal, renderDetailModal } from '../src/renders/modals.ts';
+import {
+  type DetailModalOptions,
+  renderBarcodeModal,
+  renderConfirmModal,
+  renderDetailModal,
+} from '../src/renders/modals.ts';
 import { PLACEHOLDER_SVG } from '../src/renders/shared.ts';
 import { click, loan, mount, text } from './helpers.ts';
 
@@ -28,7 +33,7 @@ const spies = () => {
 };
 
 describe('renderDetailModal', () => {
-  const detail = (over: Record<string, unknown> = {}, s = spies()) =>
+  const detail = (over: Partial<DetailModalOptions> = {}, s = spies()) =>
     mount(
       renderDetailModal({
         loan: loan(),
@@ -36,7 +41,7 @@ describe('renderDetailModal', () => {
         onClose: s.on('close'),
         onExtend: s.on('extend'),
         ...over,
-      } as never)
+      })
     );
 
   test('chaque bouton appelle SON gestionnaire', () => {
@@ -81,8 +86,21 @@ describe('renderDetailModal', () => {
 
   test('sans couverture, le placeholder inliné', () => {
     const host = detail({ loan: loan({ cover_url: null }) });
+    const src = host.querySelector('.mc-modal-cover')!.getAttribute('src') ?? '';
 
-    assert.equal(host.querySelector('.mc-modal-cover')!.getAttribute('src'), PLACEHOLDER_SVG);
+    assert.ok(src.startsWith('data:image/svg+xml'), `placeholder distant : ${src}`);
+    assert.equal(src, PLACEHOLDER_SVG);
+  });
+
+  test('une couverture en échec retombe sur le placeholder', () => {
+    // La modale n'avait pas ce repli, contrairement à la tuile et à la ligne :
+    // une couverture distante en échec y affichait l'icône d'image cassée.
+    const host = detail({ loan: loan({ cover_url: 'https://exemple/absent.jpg' }) });
+    const img = host.querySelector('.mc-modal-cover')!;
+
+    img.dispatchEvent(new Event('error'));
+
+    assert.equal(img.getAttribute('src'), PLACEHOLDER_SVG);
   });
 });
 
@@ -94,7 +112,7 @@ describe('renderConfirmModal', () => {
         onOverlayClick: s.on('overlay'),
         onCancel: s.on('cancel'),
         onConfirm: s.on('confirm'),
-      } as never)
+      })
     );
 
   test('Annuler et Confirmer ne sont pas intervertis', () => {
@@ -128,7 +146,7 @@ describe('renderBarcodeModal', () => {
         cardId,
         onOverlayClick: s.on('overlay'),
         onClose: s.on('close'),
-      } as never)
+      })
     );
 
   test('l\'identifiant est affiché et encodé', () => {

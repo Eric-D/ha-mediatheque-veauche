@@ -33,18 +33,29 @@ const window = new Window({ url: 'http://localhost' });
 // Recopie en bloc plutôt qu'une liste : Lit touche des globales qu'on ne
 // devine pas (Document, CSSStyleSheet, ShadyCSS…), et une liste incomplète
 // échoue à l'import, loin de la cause.
-// Node définit déjà Event, CustomEvent et EventTarget : ce sont ses propres
-// classes, que le DOM de happy-dom refuse (« parameter 1 is not of type
-// Event »). Elles doivent donc être remplacées, pas préservées.
-const OVERRIDE = new Set(['Event', 'CustomEvent', 'EventTarget']);
+//
+// Node définit ses propres Event, CustomEvent, EventTarget, DOMException… que
+// le DOM de happy-dom refuse (« parameter 1 is not of type Event »). Une règle
+// plutôt qu'une liste de noms : tout ce qui, chez happy-dom, dérive de
+// EventTarget ou d'Event doit l'emporter, sinon le premier test qui dispatche
+// un MessageEvent échoue à cinquante lignes de la cause.
+const belongsToTheEventFamily = (value: unknown): boolean => {
+  if (typeof value !== 'function') return false;
+  for (let proto: unknown = value; proto; proto = Object.getPrototypeOf(proto)) {
+    if (proto === window.Event || proto === window.EventTarget) return true;
+  }
+  return false;
+};
 
 for (const key of Object.getOwnPropertyNames(window)) {
-  if (key in globalThis && !OVERRIDE.has(key)) continue;
+  const value = (window as unknown as Record<string, unknown>)[key];
+  if (key in globalThis && !belongsToTheEventFamily(value)) continue;
   Object.defineProperty(globalThis, key, {
     configurable: true,
     get: () => (window as unknown as Record<string, unknown>)[key],
   });
 }
+
 for (const [key, value] of [['window', window], ['document', window.document]] as const) {
   Object.defineProperty(globalThis, key, { configurable: true, value });
 }

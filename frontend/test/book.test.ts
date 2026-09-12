@@ -46,10 +46,24 @@ describe('renderTile', () => {
   });
 
   test('sans couverture, le placeholder inliné', () => {
-    // Pas de requête réseau ni de CDN : la carte doit fonctionner hors ligne.
+    // Data-URI, et pas seulement « égal à la constante » : l'assertion doit
+    // rester vraie pour la bonne raison. Aucune requête réseau ni CDN — la
+    // carte doit fonctionner hors ligne, en WebView Android.
     const host = mount(renderTile(loan({ cover_url: null }), () => {}));
+    const src = host.querySelector('.book-tile-cover')!.getAttribute('src') ?? '';
 
-    assert.equal(host.querySelector('.book-tile-cover')!.getAttribute('src'), PLACEHOLDER_SVG);
+    assert.ok(src.startsWith('data:image/svg+xml'), `placeholder distant : ${src}`);
+    assert.equal(src, PLACEHOLDER_SVG);
+  });
+
+  test("la pastille reste lisible par un lecteur d'écran", () => {
+    // Le libellé abrégé (« 5j ») ne dit pas ce qu'il compte.
+    const host = mount(renderTile(loan({ days_left: 5 }), () => {}));
+
+    assert.equal(
+      host.querySelector('.book-tile-badge')!.getAttribute('aria-label'),
+      '⚡ 5j restants'
+    );
   });
 
   test('une couverture distante est utilisée telle quelle', () => {
@@ -104,6 +118,31 @@ describe('renderBookRow', () => {
 
     assert.equal(text(host, '.book-title'), 'Astérix');
     assert.equal(text(host, '.book-date'), 'Retour : 15 mars 2024');
+  });
+
+  test('sans couverture, la ligne aussi retombe sur le placeholder', () => {
+    const host = mount(renderBookRow(loan({ cover_url: null }), () => {}));
+    const src = host.querySelector('.book-cover')!.getAttribute('src') ?? '';
+
+    assert.ok(src.startsWith('data:image/svg+xml'), `placeholder distant : ${src}`);
+  });
+
+  test('une couverture en échec retombe sur le placeholder', () => {
+    // Le mode liste est le mode par défaut : l'invariant y compte au moins
+    // autant que sur la tuile.
+    const host = mount(renderBookRow(loan({ cover_url: 'https://exemple/absent.jpg' }), () => {}));
+    const img = host.querySelector('.book-cover')!;
+
+    img.dispatchEvent(new Event('error'));
+
+    assert.ok((img.getAttribute('src') ?? '').startsWith('data:image/svg+xml'));
+  });
+
+  test('le titre complet est accessible en infobulle', () => {
+    // Il est tronqué visuellement par le CSS.
+    const host = mount(renderBookRow(loan({ titre: 'Un très long titre' }), () => {}));
+
+    assert.equal(host.querySelector('.book-title')!.getAttribute('title'), 'Un très long titre');
   });
 
   test('la pastille reprend le libellé complet du délai', () => {

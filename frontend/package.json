@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "watch": "node build.mjs --watch",
     "lint": "oxlint src test",
-    "test": "node --conditions=browser --import ./test/_setup.ts --test 'test/*.test.ts'"
+    "test": "node --conditions=browser --experimental-transform-types --import ./test/_setup.ts --test 'test/*.test.ts'"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
@@ -18,5 +18,8 @@
     "lit": "^3.2.1",
     "oxlint": "^1.82.0",
     "typescript": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=22.18"
   }
 }

@@ -2,10 +2,16 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { renderHeader, renderLoader, renderStaleNotice } from '../src/renders/chrome.ts';
+import {
+  type HeaderOptions,
+  renderHeader,
+  renderLoader,
+  renderStaleNotice,
+} from '../src/renders/chrome.ts';
+import type { FreshnessAttributes } from '../src/types.ts';
 import { click, mount, text } from './helpers.ts';
 
-const header = (over: Record<string, unknown> = {}) =>
+const header = (over: Partial<HeaderOptions> = {}) =>
   renderHeader({
     title: 'Médiathèque',
     badgeText: '3 emprunts',
@@ -13,7 +19,7 @@ const header = (over: Record<string, unknown> = {}) =>
     cardId: '',
     onBarcodeClick: () => {},
     ...over,
-  } as never);
+  });
 
 describe('renderHeader', () => {
   test('le titre et le badge ne sont pas intervertis', () => {
@@ -40,6 +46,13 @@ describe('renderHeader', () => {
   test('pas de bouton code-barres sans identifiant de carte', () => {
     const host = mount(header({ cardId: '' }));
     assert.equal(host.querySelector('.mc-barcode-btn'), null);
+  });
+
+  test('le bouton code-barres est étiqueté', () => {
+    // Son libellé visible est « ||| » : sans infobulle, il est muet.
+    const host = mount(header({ cardId: '900123' }));
+
+    assert.equal(host.querySelector('.mc-barcode-btn')!.getAttribute('title'), 'Ma carte');
   });
 
   test('le bouton code-barres appelle son gestionnaire', () => {
@@ -79,31 +92,33 @@ describe('renderStaleNotice', () => {
 
   test('rien tant que le dernier fetch a réussi', () => {
     const host = mount(
-      renderStaleNotice({ fetch_ok: true, last_success: hoursAgo(48) } as never)
+      renderStaleNotice({ fetch_ok: true, last_success: hoursAgo(48) } as FreshnessAttributes)
     );
     assert.equal(host.querySelector('.mc-stale'), null);
   });
 
   test('rien non plus quand fetch_ok est absent', () => {
     // Premier rendu sur cache : aucun fetch n'a encore échoué.
-    const host = mount(renderStaleNotice({ last_success: hoursAgo(48) } as never));
+    const host = mount(renderStaleNotice({ last_success: hoursAgo(48) } as FreshnessAttributes));
     assert.equal(host.querySelector('.mc-stale'), null);
   });
 
   test('un échec récent ne déclenche pas le bandeau', () => {
     const host = mount(
-      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(2) } as never)
+      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(2) } as FreshnessAttributes)
     );
     assert.equal(host.querySelector('.mc-stale'), null);
   });
 
   test('au-delà du seuil, le bandeau apparaît', () => {
     const host = mount(
-      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(20) } as never)
+      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(20) } as FreshnessAttributes)
     );
 
     assert.ok(host.querySelector('.mc-stale'));
     assert.match(text(host, '.mc-stale'), /liste des emprunts/);
+    // role=status : annoncé sans voler le focus.
+    assert.equal(host.querySelector('.mc-stale')!.getAttribute('role'), 'status');
   });
 
   test('le seuil est une durée, pas un changement de jour', () => {
@@ -111,13 +126,13 @@ describe('renderStaleNotice', () => {
     // étaient figés au scrape : elle alertait sur dix minutes d'écart à
     // 00 h 05 et se taisait sur quinze heures à 23 h 00.
     const host = mount(
-      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(1) } as never)
+      renderStaleNotice({ fetch_ok: false, last_success: hoursAgo(1) } as FreshnessAttributes)
     );
     assert.equal(host.querySelector('.mc-stale'), null);
   });
 
   test('sans date de dernier succès, le bandeau apparaît quand même', () => {
-    const host = mount(renderStaleNotice({ fetch_ok: false } as never));
+    const host = mount(renderStaleNotice({ fetch_ok: false } as FreshnessAttributes));
 
     assert.ok(host.querySelector('.mc-stale'));
     assert.match(text(host, '.mc-stale'), /date inconnue/);
@@ -125,7 +140,7 @@ describe('renderStaleNotice', () => {
 
   test('une date illisible ne fait pas disparaître le bandeau', () => {
     const host = mount(
-      renderStaleNotice({ fetch_ok: false, last_success: 'pas une date' } as never)
+      renderStaleNotice({ fetch_ok: false, last_success: 'pas une date' } as FreshnessAttributes)
     );
 
     assert.ok(host.querySelector('.mc-stale'));
