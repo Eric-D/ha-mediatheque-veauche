@@ -212,16 +212,46 @@ une intégration qui enregistre un listener de mise à jour — c'est au listene
 de s'en charger — avec une **casse annoncée en 2026.12**.
 
 Les flux de reconfiguration et de ré-authentification passent donc par
-`_update_and_reload` (`config_flow.py`), qui appelle `async_update_entry` puis,
-**seulement si l'entrée n'a pas changé**, programme le rechargement lui-même.
-Ce second cas n'est pas théorique : c'est le mot de passe correct ressaisi
-après un échec transitoire. `async_update_entry` ne déclenche aucun listener
-quand rien ne change, et l'entrée resterait en erreur d'authentification alors
-que les identifiants viennent d'être validés.
+`update_entry_and_ensure_reload` (`__init__.py`), qui appelle
+`async_update_entry` puis programme le rechargement lui-même dans les deux cas
+où **aucun listener n'est appelé** :
+
+- l'entrée n'a pas changé — reconfiguration rouverte puis resoumise à
+  l'identique — `async_update_entry` renvoyant alors `False` sans rien
+  notifier ;
+- aucun listener n'est enregistré, `async_setup_entry` n'ayant pas abouti.
+  C'est le cas nominal d'une ré-authentification : elle n'est déclenchée que
+  par un `ConfigEntryAuthFailed`, qui laisse l'entrée en échec.
+
+Sans ce rechargement explicite, l'entrée resterait en erreur alors que les
+identifiants viennent d'être validés.
+
+Le helper vit dans `__init__.py`, et non dans le flux : `config_flow.py`
+n'est pas importable sous les mocks de `tests/conftest.py` — il dérive de
+`ConfigFlow` — donc un helper qui y resterait ne serait couvert que par
+analyse de source, ce qui avait déjà donné un test vert sur une garde
+inversée. Voir `tests/test_init.py::TestUpdateEntryAndEnsureReload`.
 
 Le listener a été conditionné aux options pendant un temps, pour éviter un
 double rechargement. **Ne pas rétablir cette condition** : elle rendrait une
 reconfiguration sans effet, puisqu'elle ne touche que les données.
+
+## Traductions
+
+`strings.json` n'est **jamais lu à l'exécution** pour une intégration
+personnalisée : Home Assistant ne charge que `translations/<langue>.json`, avec
+repli sur `en`. Une clé présente dans le seul `strings.json` s'affiche donc en
+clé brute à l'utilisateur.
+
+`en.json` n'est pas optionnel pour la même raison : les raisons d'abandon
+`reconfigure_successful` et `reauth_successful` sont traduites par le cœur
+quand c'est `async_update_reload_and_abort` qui les produit — il passe
+`translation_domain=homeassistant` —, mais nos `async_abort` les résolvent dans
+notre domaine. (`translation_domain` sur `async_abort` n'existe pas encore en
+2024.11, le plancher déclaré : ce n'est pas une alternative.)
+
+`tests/test_translations.py` croise le flux et **tous** les fichiers de
+traduction ; ne pas le restreindre à `strings.json`.
 
 ## Méthode de diagnostic
 

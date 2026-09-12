@@ -116,19 +116,35 @@ class TestReloadIsScheduledOnce:
             "qu'un listener est enregistré : déprécié, casse en 2026.12"
         )
 
-    def test_unchanged_entry_is_still_reloaded(self):
-        """Même mot de passe ressaisi : aucun listener, donc rechargement explicite.
+    def test_no_direct_entry_update(self):
+        """Le flux passe par update_entry_and_ensure_reload, jamais en direct.
 
-        Sans ça l'entrée resterait en erreur d'authentification alors que les
-        identifiants viennent d'être validés.
+        Le comportement lui-même est couvert par
+        tests/test_init.py::TestUpdateEntryAndEnsureReload ; ici on vérifie
+        seulement qu'aucun appel ne le contourne, ce qu'un test de
+        comportement sur le helper ne verrait pas.
         """
-        assert "async_schedule_reload" in SOURCE
+        direct = re.findall(r"config_entries\.async_update_entry\(", SOURCE)
+        assert not direct, (
+            "async_update_entry appelé directement : le rechargement n'est "
+            "plus garanti quand l'entrée ne change pas ou n'est pas chargée"
+        )
 
     def test_abort_reasons_are_translated(self):
+        """strings.json ne suffit pas : il n'est jamais lu à l'exécution.
+
+        Pour une intégration personnalisée, Home Assistant ne lit que
+        translations/<langue>.json. Une raison d'abandon présente dans le seul
+        strings.json s'afficherait en clé brute à l'utilisateur.
+        """
         reasons = set(re.findall(r'async_abort\(reason="([a-z_]+)"', SOURCE))
         assert reasons, "aucune raison d'abandon détectée"
-        missing = reasons - set(STRINGS["config"]["abort"])
-        assert not missing, f"raisons d'abandon sans traduction : {sorted(missing)}"
+        assert TRANSLATIONS, "aucun fichier de traduction"
+        for language, content in {"strings": STRINGS, **TRANSLATIONS}.items():
+            missing = reasons - set(content["config"]["abort"])
+            assert not missing, (
+                f"{language} : raisons d'abandon sans traduction : {sorted(missing)}"
+            )
 
 
 class TestTranslationFilesMatch:

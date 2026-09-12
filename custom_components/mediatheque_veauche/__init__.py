@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
+from typing import Any
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -11,7 +12,7 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.start import async_at_started
 
@@ -315,6 +316,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     return True
+
+
+@callback
+def update_entry_and_ensure_reload(
+    hass: HomeAssistant, entry: ConfigEntry, **updates: Any
+) -> None:
+    """Met à jour l'entrée en garantissant qu'elle sera rechargée.
+
+    Pas async_update_reload_and_abort : il programme lui-même un rechargement
+    alors qu'un listener de mise à jour est enregistré, ce que Home Assistant
+    déprécie avec une casse annoncée en 2026.12.
+
+    Deux cas n'appellent aucun listener et exigent donc un rechargement
+    explicite :
+
+    - l'entrée n'a pas changé — reconfiguration rouverte puis resoumise à
+      l'identique — auquel cas async_update_entry renvoie False sans rien
+      notifier ;
+    - aucun listener n'est enregistré, l'entrée n'ayant pas atteint l'état
+      LOADED : c'est le cas nominal d'une réauthentification, déclenchée par
+      un ConfigEntryAuthFailed qui laisse l'entrée en échec.
+
+    Sans ça l'entrée resterait en erreur alors que les identifiants viennent
+    d'être validés.
+    """
+    changed = hass.config_entries.async_update_entry(entry, **updates)
+    if not changed or not entry.update_listeners:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
