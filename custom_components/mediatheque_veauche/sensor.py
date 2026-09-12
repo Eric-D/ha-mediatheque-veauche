@@ -8,6 +8,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
@@ -18,6 +19,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BORROWINGS_URL,
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
@@ -199,6 +201,26 @@ async def async_setup_entry(
     )
 
 
+def _device_info(entry: ConfigEntry) -> DeviceInfo:
+    """Appareil unique regroupant les cinq capteurs du compte.
+
+    Identifié par l'entry_id et non par le login, pour la même raison que les
+    identifiants uniques d'entités : changer de login ne doit pas créer un
+    second appareil et orpheliner le premier.
+
+    Sans has_entity_name : l'activer recomposerait les noms affichés à partir du
+    nom de l'appareil, ce qui changerait ce que voit l'utilisateur sur un
+    tableau de bord existant. Le regroupement s'obtient sans ça.
+    """
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=f"Médiathèque ({entry.data[CONF_USERNAME]})",
+        manufacturer="Médiathèque de Veauche",
+        configuration_url=BORROWINGS_URL,
+        entry_type=DeviceEntryType.SERVICE,
+    )
+
+
 class _MediathequeBase(CoordinatorEntity, SensorEntity):
     """Base commune : expose la fraîcheur des données à la carte."""
 
@@ -244,6 +266,7 @@ class MediathequeEmpruntsTotal(_MediathequeBase):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = _device_info(entry)
         self._username = entry.data[CONF_USERNAME]
         self._attr_unique_id = build_unique_id(entry.entry_id, "total")
         self._attr_name = "Emprunts Médiathèque"
@@ -274,6 +297,7 @@ class MediathequeEmpruntsSemaine(_MediathequeBase):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = _device_info(entry)
         self._username = entry.data[CONF_USERNAME]
         self._attr_unique_id = build_unique_id(entry.entry_id, "due_week")
         self._attr_name = "Emprunts à rendre cette semaine"
@@ -306,6 +330,7 @@ class MediathequeEmpruntsRetard(_MediathequeBase):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = _device_info(entry)
         self._username = entry.data[CONF_USERNAME]
         self._attr_unique_id = build_unique_id(entry.entry_id, "overdue")
         self._attr_name = "Emprunts en retard"
@@ -338,6 +363,7 @@ class MediathequeFinCotisation(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = _device_info(entry)
         self._attr_unique_id = build_unique_id(entry.entry_id, "subscription")
         self._attr_name = "Fin cotisation Médiathèque"
 
@@ -373,6 +399,7 @@ class MediathequeDerniereMaj(CoordinatorEntity, SensorEntity):
 
     def __init__(self, coordinator: DataUpdateCoordinator, entry: ConfigEntry, state: dict) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = _device_info(entry)
         self._attr_unique_id = build_unique_id(entry.entry_id, "last_update")
         self._attr_name = "Dernière MAJ Médiathèque"
         self._state = state
