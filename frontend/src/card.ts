@@ -371,7 +371,23 @@ export class MediathequeCard extends LitElement {
         this._hasRendered ? '(keeping last render)' : '(showing loader)'
       );
       this._retry.schedule();
-      if (this._hasRendered) return this._lastTemplate ?? this._renderLoader(title);
+      if (this._hasRendered && !this._retry.exhausted) {
+        // Indisponibilité brève : garder le dernier rendu évite un
+        // clignotement à chaque reload de l'intégration.
+        return this._lastTemplate ?? this._renderLoader(title);
+      }
+      if (this._hasRendered) {
+        // Quota de retries épuisé : continuer d'afficher le dernier rendu
+        // ferait passer des emprunts périmés pour à jour, sans le moindre
+        // indice — précisément ce que le bandeau de péremption évite dans le
+        // cas du repli sur cache, mais ce chemin-ci ne l'atteint jamais
+        // puisque l'entité est indisponible.
+        // Texte neutre : la carte ne connaît pas la cause de l'indisponibilité.
+        // Home Assistant affiche lui-même une notification quand ce sont les
+        // identifiants ; spéculer ici enverrait chercher au mauvais endroit,
+        // par exemple après un simple redémarrage un peu lent.
+        return this._renderLoader(title, `${entityId} indisponible`);
+      }
       // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
       // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
       this._lastTemplate = this._renderLoader(

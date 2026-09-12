@@ -27,7 +27,21 @@ MONTHS_FR = [
 
 
 class AuthenticationError(Exception):
-    """Raised when authentication fails."""
+    """Échec d'authentification, cause indéterminée.
+
+    Couvre notamment les cas structurels — page de connexion qui a changé,
+    portail en maintenance, session expirée — qui ressemblent à un échec
+    d'identifiants sans en être un. Ils doivent être réessayés, pas remontés à
+    l'utilisateur comme « mot de passe invalide ».
+    """
+
+
+class InvalidCredentialsError(AuthenticationError):
+    """Les identifiants ont été refusés par le site.
+
+    Seul cas qui justifie de solliciter l'utilisateur : réessayer n'y changera
+    rien tant qu'il n'aura pas saisi de nouveaux identifiants.
+    """
 
 
 class MediathequeVeaucheClient:
@@ -79,6 +93,19 @@ class MediathequeVeaucheClient:
         }
 
         resp = self._session.post(LOGIN_URL, data=login_data, timeout=15)
+        # 401 seulement : c'est un défi d'authentification explicite. Pas 403,
+        # qui est la réponse canonique d'un pare-feu applicatif ou d'une
+        # protection anti-robot — or ce client s'annonce avec un User-Agent non
+        # navigateur tout en postant un formulaire contenant un mot de passe,
+        # ce qui est précisément ce qui déclenche ces règles. Le jour où la
+        # médiathèque en active une, traiter le 403 comme un refus
+        # d'identifiants arrêterait la synchronisation de tout le monde et leur
+        # ferait ressaisir un mot de passe correct en boucle. Pas 429 non plus :
+        # c'est une limitation de débit, réessayer plus tard fonctionnera.
+        if resp.status_code == 401:
+            raise InvalidCredentialsError(
+                "Identifiants refusés : le site a répondu 401"
+            )
         resp.raise_for_status()
 
         # Verify login succeeded by checking we can access borrowings
@@ -86,13 +113,61 @@ class MediathequeVeaucheClient:
         resp.raise_for_status()
 
         if "com_users" in resp.url and "login" in resp.url.lower():
-            raise AuthenticationError("Login failed: redirected back to login page")
+            # Renvoyé vers la page de connexion APRÈS avoir posté les
+            # identifiants : ils sont refusés, pas le site indisponible.
+            raise InvalidCredentialsError(
+                "Identifiants refusés : redirection vers la page de connexion"
+            )
+
+        # Preuve positive d'authentification. Sans ce contrôle, un portail qui
+        # rend le formulaire de connexion à l'URL demandée — au lieu de
+        # rediriger — passait pour un succès : fetch_borrowings ne trouvait
+        # aucune section, renvoyait « 0 emprunt », et ce résultat vide écrasait
+        # le cache contenant les vrais emprunts.
+        self._assert_authenticated(resp.text)
 
         self._borrowings_html = resp.text
         _LOGGER.info("Connexion réussie, page des emprunts récupérée")
 
         # Fetch lastname from profile edit page
         self._fetch_lastname()
+
+    @staticmethod
+    def _assert_authenticated(html: str) -> None:
+        """Vérifie que la page reçue est bien une page d'emprunts.
+
+        Deux issues distinctes, et la distinction compte : un formulaire de
+        connexion prouve que nous ne sommes pas authentifiés, alors qu'une page
+        simplement méconnaissable peut tout aussi bien venir d'une refonte du
+        site. Solliciter l'utilisateur dans ce second cas serait coûteux —
+        Home Assistant cesse alors de replanifier ses mises à jour jusqu'à ce
+        qu'il réponde — pour un mot de passe qui fonctionne.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        if any(
+            soup.find(id=section)
+            for section in ("profile_borrowed", "user_borrow", "family_borrow")
+        ):
+            return
+
+        # Filet pour le cas « compte sans aucun emprunt servi par un gabarit qui
+        # embarque une modale de connexion sur toutes les pages ». Sans lui, une
+        # session parfaitement valide serait prise pour un refus. Ne peut que
+        # réduire les faux positifs : s'il ne correspond à rien sur ce site, le
+        # comportement est inchangé.
+        if soup.find("a", href=re.compile(r"task=user\.logout")):
+            return
+
+        if soup.find("input", {"type": "password"}):
+            raise InvalidCredentialsError(
+                "Identifiants refusés : formulaire de connexion servi à la place "
+                "de la page des emprunts"
+            )
+
+        raise AuthenticationError(
+            "Page des emprunts méconnaissable : ni section de profil, ni "
+            "formulaire de connexion"
+        )
 
     def _fetch_lastname(self) -> None:
         """Fetch the account holder's last name from the profile edit page."""
