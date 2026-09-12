@@ -322,7 +322,9 @@ class TestExtendLoanWiring:
     def _run(coro):
         import asyncio
 
-        return asyncio.new_event_loop().run_until_complete(coro)
+        # asyncio.run ferme la boucle : new_event_loop() en fuyait une, donc un
+        # descripteur epoll, à chaque test.
+        return asyncio.run(coro)
 
     def test_calls_the_owning_client(self):
         a = _wired_account("a", "u1")
@@ -361,4 +363,7 @@ class TestExtendLoanWiring:
         hass = _Hass({"ea": _wired_account("a", "u1", fails=True)})
         with pytest.raises(HomeAssistantError) as excinfo:
             self._run(_async_extend_loan(hass, "u1"))
+        # Type exact : ServiceValidationError en hérite, et un échec du portail
+        # n'est pas une erreur de saisie de l'utilisateur.
+        assert type(excinfo.value) is HomeAssistantError
         assert "La prolongation a échoué" in str(excinfo.value)

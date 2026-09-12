@@ -345,5 +345,15 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     Les rechargements sont fréquents : changement d'options, reconfiguration,
     ré-authentification.
     """
-    if not _loan_entries(hass):
+    # async_unload_entry n'est pas appelé pour une entrée qui n'était pas
+    # chargée : ConfigEntry.async_unload sort avant pour tout état autre que
+    # LOADED. Supprimer un compte resté en erreur de configuration laissait
+    # donc son client dans hass.data jusqu'au redémarrage, ce qui maintenait
+    # _loan_entries non vide et empêchait aussi le retrait du service le jour
+    # où le dernier vrai compte serait supprimé. Idempotent avec le pop de
+    # async_unload_entry.
+    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if not _loan_entries(hass) and hass.services.has_service(
+        DOMAIN, SERVICE_EXTEND_LOAN
+    ):
         hass.services.async_remove(DOMAIN, SERVICE_EXTEND_LOAN)
