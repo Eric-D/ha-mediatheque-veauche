@@ -39,11 +39,6 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements_test.txt
 
-      # Le chemin qui produit ce que les utilisateurs installent doit passer
-      # les tests, pas seulement celui des pull requests.
-      - name: Run tests
-        run: pytest -q
-
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -68,6 +63,11 @@ jobs:
         run: |
           npm run typecheck
           npm run build
+
+      # Après le bump et le rebuild : c'est le code réellement publié qu'on
+      # teste, pas celui d'avant substitution des versions.
+      - name: Run tests
+        run: pytest -q
 
       - name: Commit version bump and rebuilt bundle
         run: |

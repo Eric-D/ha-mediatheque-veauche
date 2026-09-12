@@ -54,11 +54,19 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Home Assistant n'est volontairement pas épinglé : ce job doit virer au
+      # rouge quand une version amont casse l'intégration. C'est le signal
+      # recherché, y compris sur l'exécution programmée quotidienne.
       - name: Install Home Assistant and integration requirements
         run: |
           python -m pip install --upgrade pip
           python -m pip install homeassistant
-          python -m pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/mediatheque_veauche/manifest.json'))['requirements']))")
+          python -c "
+          import json, pathlib
+          manifest = json.loads(pathlib.Path('custom_components/mediatheque_veauche/manifest.json').read_text())
+          pathlib.Path('manifest-requirements.txt').write_text('\n'.join(manifest['requirements']) + '\n')
+          "
+          python -m pip install -r manifest-requirements.txt
 
       - name: Import every module of the integration
         run: |

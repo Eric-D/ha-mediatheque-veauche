@@ -498,6 +498,15 @@ class TestExtendLoan:
         client.extend_loan("https://mediatheque.veauche.fr/extend/1")
         assert client._session is not None
 
+    def test_login_in_url_alone_is_not_a_redirect(self, client):
+        """Le risque de ce garde-fou est la sur-détection : « login » seul dans
+        l'URL ne suffit pas, il faut aussi com_users."""
+        client._session = self._session(
+            "https://mediatheque.veauche.fr/extend/1?return=login"
+        )
+        client.extend_loan("https://mediatheque.veauche.fr/extend/1")
+        assert client._session is not None
+
 
 # ---------------------------------------------------------------------------
 # _get_book_details — mémorisation
