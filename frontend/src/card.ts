@@ -356,7 +356,13 @@ export class MediathequeCard extends LitElement {
     if (!states) {
       mcLog('warn', 'card', 'hass.states absent, rendu du loader');
       this._retry.schedule();
-      return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
+      // Même règle que la branche « entité indisponible » plus bas : au-delà du
+      // quota de retries, afficher indéfiniment le dernier rendu ferait passer
+      // des emprunts périmés pour à jour. Ce chemin l'ignorait.
+      if (!this._retry.exhausted) {
+        return this._lastTemplate ?? this._renderLoader(title, 'En attente de Home Assistant…');
+      }
+      return this._renderLoader(title, 'Home Assistant ne répond plus');
     }
     const state = states[entityId];
 

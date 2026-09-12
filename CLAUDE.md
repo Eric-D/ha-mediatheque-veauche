@@ -68,49 +68,80 @@ prévu pour livrer une carte.
 Repris de `.specify/memory/constitution.md`, supprimé en septembre 2026 : deux
 de ses principes étaient factuellement faux et avaient produit un correctif
 nuisible, plusieurs autres décrivaient un code qui n'existait plus. Ne sont
-conservés ici que des invariants vérifiés contre le code.
+conservés ici que des invariants vérifiés contre le code, avec leur ancre.
 
 ### Écarts délibérés au contrat des cartes personnalisées
 
 Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
 
-- **`setConfig()` ne lève pas pour une entité absente ou vide.** La convention
-  Home Assistant veut qu'elle lève ; ici ça rendait la carte irrécupérable
-  depuis l'interface — l'éditeur émet une configuration sans `entity` dès qu'on
-  vide le champ, et la carte restait en erreur définitive. On loggue et on
-  affiche un loader. Seule une configuration non-objet lève encore.
-- **Pas de garde d'égalité dans le setter `hass`.** Lit enveloppe le setter et
-  appelle `requestUpdate()` quoi qu'il arrive : une telle garde est du code
-  mort qui donne l'illusion d'optimiser. Le filtrage des re-rendus vit dans
-  `shouldUpdate()`.
-- **Pas de `performUpdate()` synchrone dans `connectedCallback`.** Il y en a eu
-  un, ajouté contre une cause inventée — « HA interprète un rendu vide comme
-  une erreur de configuration », ce qui n'existe pas. Il faisait rendre la
-  carte de façon ré-entrante dans le commit Lit de Home Assistant, et son
-  retrait a mesurablement accéléré les changements de page.
+- **`setConfig()` ne lève pas pour une entité absente ou vide**
+  (`card.ts`, `setConfig`). La convention Home Assistant veut qu'elle lève ; ici ça
+  rendait la carte irrécupérable depuis l'interface. `ha-form` émet
+  `entity: undefined` quand on vide le champ ; l'éditeur la recoerce en `''`
+  (`editor.ts`, `_valueChanged`) et `setConfig` tolère en second rempart. Les deux sont
+  nécessaires : retirer l'un en croyant l'autre suffisant restaure la panne.
+  Seule une configuration non-objet lève encore (même fonction, première garde).
+- **Pas de garde d'égalité dans le setter `hass`** (`card.ts`, setter `hass`). Une telle
+  garde n'est pas seulement inutile, elle est **nuisible** : un early-return
+  sauterait `_syncEntityStates()` et laisserait `_totalEntityState` vide au
+  premier rendu, donc pas de `card_id`, donc pas de bouton code-barres avant un
+  second tick. Elle serait de surcroît sans effet, `requestUpdate()` filtrant
+  déjà par `notEqual` sur l'ancienne valeur. Le filtrage des re-rendus vit dans
+  `shouldUpdate()` (`card.ts`, `shouldUpdate`), qui doit conserver deux cas non
+  évidents : une modale ouverte bloque les rafraîchissements venus de `hass`
+  pour ne pas casser l'interaction, et `_config` doit toujours passer car il
+  peut arriver dans le même lot qu'un `hass` dont les états n'ont pas bougé.
+- **Pas de `performUpdate()` synchrone dans `connectedCallback`**
+  (`card.ts`, `connectedCallback`). Il y en a eu un (`84a32e8`), ajouté contre une cause
+  inventée — « HA interprète un rendu vide comme une erreur de configuration »,
+  mécanisme qui n'existe pas. Il faisait rendre la carte de façon ré-entrante
+  dans le commit Lit de Home Assistant. Son retrait a rendu les changements de
+  page nettement plus rapides, d'après l'utilisateur ; aucune mesure n'est
+  conservée dans le dépôt.
 
 ### Ce qui doit rester vrai
 
-- **Aucune dépendance runtime externe.** Pas de CDN, pas de police distante :
-  tout est inliné dans le bundle, qui doit fonctionner hors ligne et en WebView
-  Android. `frontend/package.json` ne déclare que des `devDependencies`.
-- **Jamais `unsafeHTML` sur du contenu venant du capteur.** `unsafeSVG` n'est
-  utilisé que sur le code-barres, généré à partir d'une table blanche de
-  caractères et d'entiers calculés — aucune donnée externe n'y est interpolée.
+- **Aucune dépendance externe dans le bundle** (`frontend/package.json` : que
+  des `devDependencies`). Pas de CDN, pas de police distante, tout est inliné —
+  la carte doit fonctionner en WebView Android. À ne pas confondre avec « aucun
+  accès réseau » : les couvertures sont chargées depuis le site de la
+  médiathèque et retombent sur une data-URI en cas d'échec (`card.ts`, gestionnaire `@error` des `<img>`).
+- **Jamais `unsafeHTML` sur du contenu venant du capteur.** Il n'y en a aucun.
+  Le seul `unsafeSVG` (`card.ts`, `_renderBarcodeModal`) reçoit la sortie de `generateCode39Svg`,
+  dont l'entrée vient pourtant bien du capteur (`card.ts`, `_renderCovers`). Ce qui rend
+  l'ensemble sûr tient à **une seule ligne** : `helpers/barcode.ts` filtre, dans `generateCode39Svg`, par table
+  blanche, et tout ce qui atteint la chaîne SVG ensuite est un entier calculé.
+  C'est cette ligne qu'une refactorisation cassera sans s'en apercevoir.
 - **`extend_url` n'est jamais un lien cliquable.** Elle passe par le service
-  `mediatheque_veauche.extend_loan`, qui vérifie à quel compte elle appartient.
+  `mediatheque_veauche.extend_loan` (`card.ts`, `_confirmExtendNow`), qui vérifie à quel compte
+  elle appartient (`__init__.py`, `_owns_loan` et `_select_entry`).
 - **`render()` retourne toujours un `<ha-card>` visible**, loader compris. Pas
   parce que Home Assistant inspecterait le shadow root — il ne le fait pas —
   mais parce qu'un rendu vide ne donne à l'utilisateur aucune information.
-- **Le dernier rendu n'est conservé que tant qu'il reste des retries.**
-  Au-delà (environ 100 s d'indisponibilité continue), message explicite :
-  afficher indéfiniment des emprunts périmés sans aucun indice est le
-  comportement qu'on cherche à éviter.
-- **`customElements.define` reste gardé** par `if (!customElements.get(...))` :
-  sur WebView Android le script peut être ré-évalué au retour de veille.
+- **Le dernier rendu n'est conservé que tant qu'il reste des retries**, sur
+  **les deux** chemins d'indisponibilité (`card.ts`, `_render` : branche `!states` et branche entité indisponible).
+  Au-delà, message explicite : afficher indéfiniment des emprunts périmés sans
+  aucun indice est le comportement qu'on cherche à éviter. Le budget vaut
+  environ 100 s d'indisponibilité continue (`helpers/retry.ts` : dix essais,
+  `2000 × n` plafonné à 15 000), mais il est remis à zéro à chaque
+  reconnexion de l'élément (`connectedCallback` appelle `_retry.reset()`) — changement de vue, déplacement
+  entre sections.
+- **`customElements.define` reste gardé** par `if (!customElements.get(...))`
+  (fin de module de `card.ts`, deux fois, et de `editor.ts`) : sur WebView Android le script peut
+  être ré-évalué au retour de veille.
+- **`window.customCards.push`** (fin de module de `card.ts`) : nécessaire au sélecteur
+  de cartes. Rien en CI ne détecterait sa suppression.
+- **L'événement `mediatheque-card-update`** est émis après chaque rendu effectif
+  (`card.ts`, `updated`). C'est un contrat public pour les plugins tiers — card-mod
+  notamment — sans aucun consommateur dans ce dépôt : personne ne verra sa
+  disparition.
+- **Aucun timer ne survit au détachement.** `disconnectedCallback` annule le
+  retry en cours (`disconnectedCallback`), `connectedCallback` remet le quota à zéro
+  (`connectedCallback`).
 
-`frontend/src/card.ts` fait plus de 900 lignes, pour un objectif affiché de 300.
-C'est une dette connue, pas un invariant respecté.
+`frontend/src/card.ts` fait 972 lignes, pour un objectif affiché de 300. Dette
+connue, pas invariant respecté. Les candidats évidents à l'extraction sont le
+rendu des modales et le bloc d'enregistrement de l'élément.
 
 ## Méthode de diagnostic
 
