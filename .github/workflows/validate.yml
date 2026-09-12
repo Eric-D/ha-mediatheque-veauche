@@ -21,10 +21,14 @@ jobs:
         with:
           category: integration
 
-  # hassfest valide réellement le manifeste : existence des dépendances,
-  # cycles, ordre des clés, et surtout la règle « composant importé mais non
-  # déclaré ». C'est la validation que des assertions écrites à la main ne
-  # peuvent pas remplacer.
+  # hassfest valide le manifeste pour de vrai. Attention au périmètre exact :
+  # l'action passe --integration-path, donc specific_integrations est vrai, et
+  # dependencies.py saute alors _validate_dependencies (existence) et
+  # _validate_circular_dependencies (cycles). Ce qui tourne effectivement ici :
+  # la règle « composant importé mais non déclaré », l'ordre des clés, le
+  # vocabulaire d'integration_type et la présence de « version ». C'est la
+  # première règle qui rend superflue toute assertion écrite à la main sur les
+  # dépendances — ne pas supprimer d'autre test en croyant hassfest le couvrir.
   hassfest:
     runs-on: ubuntu-latest
     steps:

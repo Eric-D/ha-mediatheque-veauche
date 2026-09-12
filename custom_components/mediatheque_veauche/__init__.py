@@ -29,6 +29,12 @@ CARD_URL = f"/{DOMAIN}/mediatheque-card.js"
 # produit ni double téléchargement ni double bannière.
 CARD_RESOURCE_URL = f"{CARD_URL}?v={CARD_VERSION}"
 
+# Sans ce schéma, Home Assistant n'a aucun moyen de savoir que le domaine
+# n'accepte pas de configuration YAML : un « mediatheque_veauche: » égaré dans
+# configuration.yaml serait accepté en silence au lieu d'être signalé.
+# hassfest le réclame dès lors qu'async_setup est défini.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 SERVICE_EXTEND_LOAN = "extend_loan"
 SERVICE_EXTEND_SCHEMA = vol.Schema({
     vol.Required("extend_url"): cv.url,
