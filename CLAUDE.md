@@ -353,6 +353,44 @@ le code a été écrit sans linter, aucune ligne ne dépasse cette valeur, et
 reformater une trentaine de lignes dans la PR qui introduit l'outil aurait noyé
 les vraies corrections.
 
+`npm test` côté carte — le runner intégré de Node, sans vitest ni jest. Les
+fonctions de `renders/` sont rendues dans un vrai DOM (`happy-dom`) puis
+interrogées, plutôt qu'inspectées via les `strings` et `values` du
+`TemplateResult` : un `@click` ne se distingue d'un autre qu'en le déclenchant.
+C'est ce qui permet de voir ce que ni `tsc` ni oxlint ne voient — deux
+paramètres de même type inversés, un gestionnaire branché sur le mauvais
+élément.
+
+**Les helpers comptent au moins autant que les rendus.** Une erreur dans
+`renders/` se voit à l'œil au premier chargement ; `barcode.ts`, `days-chip.ts`
+et `retry.ts` échouent en silence — un code-barres que le scanner refuse à la
+banque de prêt, un emprunt filtré hors de la liste parce qu'un seuil a bougé,
+un budget de réessai épuisé trop tôt. Ce sont aussi les seuls à se tester sans
+DOM.
+
+Trois contraintes du harnais, dans `test/_setup.ts`, à ne pas défaire :
+
+- le DOM est installé par `--import ./test/_setup.ts` et non par un import dans
+  les fichiers de test : leurs imports statiques sont évalués avant leur corps,
+  donc Lit se chargerait avant que `HTMLElement` existe ;
+- `--conditions=browser` est nécessaire, sans quoi Node résout l'export
+  « node » de Lit, qui suppose un rendu serveur et lève à l'import ;
+- les globales de la famille `Event` viennent de happy-dom et **remplacent**
+  celles de Node, qui refuse les siennes (« parameter 1 is not of type
+  Event »). La règle porte sur toute la famille, pas sur une liste de noms.
+
+Un crochet de résolution réécrit les imports `./x.js` des sources en `./x.ts`.
+Le `.js` est une **convention du dépôt** — `moduleResolution` vaut `Bundler`,
+qui n'impose rien, et esbuild comme tsc accepteraient l'import sans extension —
+mais le dépouillement de types de Node, lui, ne sait pas la suivre. Le crochet
+est limité aux fichiers du dépôt : ailleurs, un `.ts` voisin n'existe pas et la
+résolution normale doit suivre son cours.
+
+`card.ts` reste hors d'atteinte de ce runner : il utilise des décorateurs, que
+le dépouillement de types de Node refuse. `--experimental-transform-types`, déjà
+activé pour les propriétés de constructeur de `retry.ts`, ne suffit pas. Ne pas
+y perdre de temps sans changer d'outillage.
+
 `npm run lint` côté TypeScript — **oxlint**, pas ESLint. `typescript-eslint`
 déclare une plage de pairs `>=4.8.4 <6.1.0` et ne supporte donc pas TypeScript 7,
 adopté ici : l'installer demanderait `--force`, donc un outillage dont on ne
@@ -373,7 +411,7 @@ python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
 ruff check .
-(cd frontend && npm ci && npm run typecheck && npm run lint && npm run build)
+(cd frontend && npm ci && npm run typecheck && npm run lint && npm test && npm run build)
 git diff --exit-code --stat custom_components/mediatheque_veauche/www/mediatheque-card.js
 ```
 

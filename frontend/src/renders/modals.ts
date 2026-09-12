@@ -4,7 +4,7 @@ import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 
 import { generateCode39Svg } from '../helpers/barcode.js';
 import type { Loan } from '../types.js';
-import { PLACEHOLDER_SVG } from './shared.js';
+import { PLACEHOLDER_SVG, onCoverError } from './shared.js';
 
 export interface DetailModalOptions {
   loan: Loan;
@@ -26,7 +26,7 @@ export function renderDetailModal({
         <div class="mc-modal-body mc-modal-body-top">
           <div class="mc-modal-title">${loan.titre}</div>
         </div>
-        <img class="mc-modal-cover" src=${cover} alt="" />
+        <img class="mc-modal-cover" src=${cover} alt="" @error=${onCoverError} />
         <div class="mc-modal-body">
           ${loan.isbn ? html`<div class="mc-modal-isbn">ISBN : ${loan.isbn}</div>` : nothing}
           <div class="mc-modal-actions">
