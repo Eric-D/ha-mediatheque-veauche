@@ -250,12 +250,16 @@ python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
 ruff check .
-cd frontend && npm run lint
+cd frontend && npm ci && npm run typecheck && npm run lint && npm run build
+git diff --quiet custom_components/mediatheque_veauche/www/mediatheque-card.js
 ```
 
-Ce sont exactement les commandes de la CI, et `tests/test_documentation.py`
-vérifie qu'elles ne divergent pas — découvrir l'écart en poussant est le genre
-de friction que ce dépôt s'efforce de supprimer partout ailleurs.
+Ce bloc reproduit les vérifications de la CI, et `tests/test_documentation.py`
+compare les deux pour qu'ils ne divergent pas — découvrir l'écart en poussant
+est le genre de friction que ce dépôt s'efforce de supprimer partout ailleurs.
+
+La dernière ligne est celle qu'on oublie le plus souvent : le bundle commité
+doit correspondre au build, et la CI échoue sinon.
 
 Les deux commandes du milieu sont nécessaires : les dépendances runtime
 (`beautifulsoup4`, `requests`) ne sont pas recopiées dans
