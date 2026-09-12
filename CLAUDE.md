@@ -335,6 +335,11 @@ Le listener a été conditionné aux options pendant un temps, pour éviter un
 double rechargement. **Ne pas rétablir cette condition** : elle rendrait une
 reconfiguration sans effet, puisqu'elle ne touche que les données.
 
+**Ne pas passer à `OptionsFlowWithReload`** non plus, malgré son nom engageant :
+sa propre docstring interdit de l'employer quand l'intégration enregistre un
+listener de mise à jour, et elle ne couvrirait de toute façon que les options —
+ni la reconfiguration ni la ré-authentification, qui ne touchent que `data`.
+
 ## Traductions
 
 `strings.json` n'est **jamais lu à l'exécution** pour une intégration
@@ -473,14 +478,45 @@ simule. Le job `import-check` de la CI l'installe, lui, pour de vrai.
 
 ## Version minimale de Home Assistant
 
-`2024.11.0`, déclarée dans `hacs.json`. Déterminée par les API réellement
-utilisées, vérifiées contre les sources de Home Assistant :
+`2026.1.0`, déclarée dans `hacs.json`. **C'est une politique de support, plus
+une dérivation des API utilisées** : décision de septembre 2026 de ne prendre
+en charge que la série 2026. Techniquement, la plus exigeante des API employées
+est `OptionsFlow.config_entry`, qui n'a besoin que de 2024.12.
 
-- `async_register_static_paths` et `StaticPathConfig` → 2024.7 (absents de
-  2024.6.0) ;
-- `getGridOptions()` de la carte → frontend `20241106.0`, soit **2024.11**.
+Ce qui reste vrai pour autant, et qu'il faut continuer à vérifier contre les
+sources avant d'employer une API nouvelle :
 
-Avant d'utiliser une nouvelle API de Home Assistant ou de son frontend,
-vérifier le tag qui l'introduit et relever ce plancher si besoin.
-`tests/test_manifest.py` n'est qu'un cliquet : il empêche de l'abaisser, il ne
-peut pas détecter qu'une API récente exige davantage.
+- `async_register_static_paths` et `StaticPathConfig` → 2024.7 ;
+- `getGridOptions()` de la carte → frontend `20241106.0`, soit 2024.11 ;
+- `entry.runtime_data` et `ConfigEntry[T]` → 2024.6 ;
+- `OptionsFlow.config_entry` → **2024.12** (à 2024.11, la propriété n'existait
+  que sur `OptionsFlowWithConfigEntry`).
+
+`tests/test_manifest.py` n'est qu'un cliquet : il empêche d'abaisser le
+plancher, il ne peut pas détecter qu'une API récente exige davantage.
+
+### Versions de Python
+
+Elles suivent le plancher, et elles divergent à dessein entre les jobs :
+
+- `target-version` de ruff et le job `test-python` sur **3.13**, le
+  `REQUIRED_PYTHON_VER` de 2026.1 ;
+- le job `import-check` sur **3.14**, parce qu'il teste contre le Home
+  Assistant le plus récent, qui l'exige depuis 2026.3. Le laisser sur 3.13
+  ferait retomber la résolution sur une version plus ancienne, en silence, et
+  le job cesserait de faire ce pour quoi il existe.
+
+## Auditer les dépréciations
+
+Le mécanisme de dépréciation de Home Assistant est `report_usage()`, appelé à
+l'exécution : rien ne le signale à l'import ni en CI. Pour vérifier ce qu'on
+utilise :
+
+```
+uv venv /tmp/ha --python 3.14
+uv pip install --python /tmp/ha/bin/python homeassistant beautifulsoup4 requests
+grep -rn "report_usage(" -A8 /tmp/ha/lib/*/site-packages/homeassistant/
+```
+
+Croiser les messages obtenus avec nos appels. Audit de septembre 2026 contre
+2026.9.2 : aucune API utilisée n'est dépréciée.

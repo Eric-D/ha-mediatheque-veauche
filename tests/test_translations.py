@@ -147,6 +147,35 @@ class TestReloadIsScheduledOnce:
             )
 
 
+class TestOptionsFlowUsesTheBaseClassEntry:
+    """La classe de base expose l'entrée depuis 2024.12.
+
+    La stocker soi-même était ce que faisait OptionsFlowWithConfigEntry, que
+    Home Assistant met en erreur pour ses propres intégrations. config_flow.py
+    n'étant pas importable sous les mocks — il dérive de ConfigFlow —, on lit
+    la source.
+    """
+
+    def test_no_hand_stored_entry(self):
+        assert "self._config_entry" not in SOURCE, (
+            "l'entrée ne doit plus être stockée à la main : OptionsFlow la "
+            "fournit par sa propriété config_entry"
+        )
+
+    def test_the_options_flow_has_no_constructor(self):
+        options = SOURCE.partition(_OPTIONS_CLASS)[2]
+        assert "def __init__" not in options
+
+    def test_interval_is_read_from_options_first(self):
+        """Puis des données en repli, pour une entrée jamais passée par les
+        options. Lire `data` en premier figerait l'intervalle à sa valeur de
+        création : changer l'option n'aurait plus aucun effet."""
+        options = SOURCE.partition(_OPTIONS_CLASS)[2]
+        first = options.index("self.config_entry.options.get")
+        fallback = options.index("self.config_entry.data.get")
+        assert first < fallback
+
+
 class TestTranslationFilesMatch:
     def test_fallback_language_is_present(self):
         """en est la langue de repli : son absence se voit chez les autres.

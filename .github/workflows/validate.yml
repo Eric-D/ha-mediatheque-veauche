@@ -79,9 +79,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup Python
+        # 3.14, et non la version du plancher : ce job teste contre le Home
+        # Assistant le plus récent, qui l'exige depuis 2026.3. Sur 3.13, la
+        # résolution retomberait en silence sur une version plus ancienne et
+        # le job cesserait de faire ce pour quoi il existe.
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       # Home Assistant n'est volontairement pas épinglé : ce job doit virer au
       # rouge quand une version amont casse l'intégration. C'est le signal
