@@ -296,11 +296,11 @@ class _RecordingCoordinator(_Coordinator):
 
 
 def _wired_account(name, *urls, fails=False):
-    """Entrée complète : client ET coordinator, comme async_setup_entry la pose."""
+    """Entrée complète, telle que la posent async_setup_entry (client,
+    username) puis sensor.py (coordinator)."""
     return {
         "client": _Client(name, fails=fails),
         "username": name,
-        "options": {},
         "coordinator": _RecordingCoordinator(
             {"membres": {name: [{"titre": "Livre", "extend_url": u} for u in urls]}}
         ),
@@ -364,3 +364,91 @@ class TestExtendLoanWiring:
         # n'est pas une erreur de saisie de l'utilisateur.
         assert type(excinfo.value) is HomeAssistantError
         assert "La prolongation a échoué" in str(excinfo.value)
+
+
+class _ConfigEntries:
+    """Double de hass.config_entries pour le chemin de rechargement.
+
+    async_update_entry renvoie False quand rien ne change — c'est ce retour,
+    et lui seul, qui distingue les deux cas que la garde doit couvrir.
+    """
+
+    def __init__(self, changed: bool = True):
+        self._changed = changed
+        self.updates: list[dict] = []
+        self.scheduled: list[str] = []
+
+    def async_update_entry(self, entry, **updates):
+        self.updates.append(updates)
+        if self._changed:
+            entry.data = {**entry.data, **updates.get("data", {})}
+        return self._changed
+
+    def async_schedule_reload(self, entry_id):
+        self.scheduled.append(entry_id)
+
+
+class _Entry:
+    def __init__(self, listeners: int = 1):
+        self.entry_id = "e1"
+        self.data = {"username": "u", "password": "p"}
+        # update_listeners est vide tant que async_setup_entry n'a pas abouti.
+        self.update_listeners = [object()] * listeners
+
+
+class _HassWithEntries:
+    def __init__(self, config_entries):
+        self.config_entries = config_entries
+
+
+class TestUpdateEntryAndEnsureReload:
+    """Le rechargement doit avoir lieu dans les trois cas, une seule fois.
+
+    C'est le point le plus délicat de la bascule vers le listener : le listener
+    n'est appelé que si l'entrée change ET s'il est enregistré. Un test qui se
+    contenterait de chercher « async_schedule_reload » dans la source passerait
+    au vert sur une garde inversée.
+    """
+
+    def test_change_with_listener_leaves_the_reload_to_it(self):
+        entries = _ConfigEntries(changed=True)
+        entry = _Entry(listeners=1)
+
+        integration.update_entry_and_ensure_reload(
+            _HassWithEntries(entries), entry, data={"password": "neuf"}
+        )
+
+        assert entries.updates == [{"data": {"password": "neuf"}}]
+        # Double rechargement sinon : le listener en programme déjà un.
+        assert entries.scheduled == []
+
+    def test_unchanged_entry_is_reloaded_explicitly(self):
+        """Reconfiguration rouverte puis resoumise à l'identique.
+
+        Aucun listener n'est notifié ; sans rechargement explicite l'entrée
+        resterait en erreur alors que les identifiants viennent d'être validés.
+        """
+        entries = _ConfigEntries(changed=False)
+        entry = _Entry(listeners=1)
+
+        integration.update_entry_and_ensure_reload(
+            _HassWithEntries(entries), entry, data={"password": "p"}
+        )
+
+        assert entries.scheduled == ["e1"]
+
+    def test_change_without_listener_is_reloaded_explicitly(self):
+        """Entrée jamais montée : add_update_listener n'a pas été atteint.
+
+        Entrée désactivée, ou setup interrompu par une migration qui lève. Pas
+        une réauthentification : celle-ci part d'un rafraîchissement de fond,
+        donc d'une entrée déjà chargée, dont le listener est en place.
+        """
+        entries = _ConfigEntries(changed=True)
+        entry = _Entry(listeners=0)
+
+        integration.update_entry_and_ensure_reload(
+            _HassWithEntries(entries), entry, data={"password": "neuf"}
+        )
+
+        assert entries.scheduled == ["e1"]

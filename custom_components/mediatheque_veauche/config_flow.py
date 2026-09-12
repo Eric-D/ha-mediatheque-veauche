@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
+from . import update_entry_and_ensure_reload
 from .const import (
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
@@ -123,12 +124,14 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
                     # ultérieure portant le nouveau login ne serait pas détectée
                     # comme doublon. Les identifiants uniques des entités, eux,
                     # dérivent de l'entry_id et ne bougent pas.
-                    return self.async_update_reload_and_abort(
+                    update_entry_and_ensure_reload(
+                        self.hass,
                         entry,
                         unique_id=new_username,
                         title=f"Médiathèque ({new_username})",
-                        data_updates=user_input,
+                        data={**entry.data, **user_input},
                     )
+                    return self.async_abort(reason="reconfigure_successful")
 
         current_username = entry.data.get(CONF_USERNAME, "")
         return self.async_show_form(
@@ -174,9 +177,10 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
             if error:
                 errors["base"] = error
             else:
-                return self.async_update_reload_and_abort(
-                    entry, data_updates=user_input
+                update_entry_and_ensure_reload(
+                    self.hass, entry, data={**entry.data, **user_input}
                 )
+                return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
             step_id="reauth_confirm",

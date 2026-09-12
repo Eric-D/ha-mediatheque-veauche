@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Veauche Library",
+        "description": "Enter your Veauche library credentials.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "scan_interval": "Update interval (minutes)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure credentials",
+        "description": "Change your Veauche library credentials. Changing the username keeps the sensor history.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to the library",
+        "description": "The credentials for {username} were rejected by the library. Enter the up-to-date password to resume synchronisation.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the library.",
+      "invalid_auth": "Invalid credentials.",
+      "unknown": "Unexpected error.",
+      "already_configured": "Another account is already configured with this username."
+    },
+    "abort": {
+      "already_configured": "This library is already configured.",
+      "reconfigure_successful": "Credentials updated successfully.",
+      "reauth_successful": "Reconnection successful, synchronisation resumes."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Update interval (minutes)"
+        }
+      }
+    }
+  }
+}

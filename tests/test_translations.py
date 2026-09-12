@@ -99,7 +99,65 @@ class TestConfigFlowStrings:
         assert "{username}" in description
 
 
+class TestReloadIsScheduledOnce:
+    """Un seul endroit doit programmer le rechargement.
+
+    Home Assistant déprécie async_update_reload_and_abort pour une intégration
+    qui enregistre un listener de mise à jour — le listener est censé s'en
+    charger — avec une casse annoncée en 2026.12. config_flow.py n'étant pas
+    importable sous les mocks, on lit la source.
+    """
+
+    def test_no_deprecated_update_reload_and_abort(self):
+        """Un appel, pas une mention : la docstring du remplaçant le nomme."""
+        calls = re.findall(r"self\.async_update_reload_and_abort\(", SOURCE)
+        assert not calls, (
+            "async_update_reload_and_abort programme un rechargement alors "
+            "qu'un listener est enregistré : déprécié, casse en 2026.12"
+        )
+
+    def test_no_direct_entry_update(self):
+        """Le flux passe par update_entry_and_ensure_reload, jamais en direct.
+
+        Le comportement lui-même est couvert par
+        tests/test_init.py::TestUpdateEntryAndEnsureReload ; ici on vérifie
+        seulement qu'aucun appel ne le contourne, ce qu'un test de
+        comportement sur le helper ne verrait pas.
+        """
+        direct = re.findall(r"config_entries\.async_update_entry\(", SOURCE)
+        assert not direct, (
+            "async_update_entry appelé directement : le rechargement n'est "
+            "plus garanti quand l'entrée ne change pas ou n'est pas chargée"
+        )
+
+    def test_abort_reasons_are_translated(self):
+        """strings.json ne suffit pas : il n'est jamais lu à l'exécution.
+
+        Pour une intégration personnalisée, Home Assistant ne lit que
+        translations/<langue>.json. Une raison d'abandon présente dans le seul
+        strings.json s'afficherait en clé brute à l'utilisateur.
+        """
+        reasons = set(re.findall(r'async_abort\(reason="([a-z_]+)"', SOURCE))
+        assert reasons, "aucune raison d'abandon détectée"
+        assert TRANSLATIONS, "aucun fichier de traduction"
+        for language, content in {"strings": STRINGS, **TRANSLATIONS}.items():
+            missing = reasons - set(content["config"]["abort"])
+            assert not missing, (
+                f"{language} : raisons d'abandon sans traduction : {sorted(missing)}"
+            )
+
+
 class TestTranslationFilesMatch:
+    def test_fallback_language_is_present(self):
+        """en est la langue de repli : son absence se voit chez les autres.
+
+        Le reste de ce fichier boucle sur les fichiers trouvés — en supprimer
+        un laisse donc tout au vert, y compris celui que lisent les
+        utilisateurs non francophones.
+        """
+        missing = {"en", "fr"} - set(TRANSLATIONS)
+        assert not missing, f"fichiers de traduction manquants : {sorted(missing)}"
+
     def test_same_keys_as_strings(self):
         reference = _flat(STRINGS)
         for language, content in TRANSLATIONS.items():

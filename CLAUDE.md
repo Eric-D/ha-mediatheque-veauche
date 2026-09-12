@@ -204,6 +204,63 @@ reprendrait l'orpheline en premier, lui ferait capter l'identifiant, et
 abandonnerait la vivante. Le remède est plus probable que le mal — il se
 déclenche sans crash, la fenêtre ne s'ouvre qu'avec.
 
+## Rechargement de l'entrée de configuration
+
+Un seul endroit recharge : le listener `async_update_options`
+(`__init__.py`). Home Assistant déprécie `async_update_reload_and_abort` pour
+une intégration qui enregistre un listener de mise à jour — c'est au listener
+de s'en charger — avec une **casse annoncée en 2026.12**.
+
+Les flux de reconfiguration et de ré-authentification passent donc par
+`update_entry_and_ensure_reload` (`__init__.py`), qui appelle
+`async_update_entry` puis programme le rechargement lui-même dans les deux cas
+où **aucun listener n'est appelé** :
+
+- l'entrée n'a pas changé — reconfiguration rouverte puis resoumise à
+  l'identique — `async_update_entry` renvoyant alors `False` sans rien
+  notifier ;
+- aucun listener n'est enregistré : entrée désactivée, ou `async_setup_entry`
+  interrompu avant `add_update_listener`. **Ce n'est pas le cas d'une
+  ré-authentification** : le seul `ConfigEntryAuthFailed` du dépôt est levé
+  dans le rafraîchissement du coordinator (`sensor.py`), lancé en tâche de
+  fond après le setup, donc avec `raise_on_auth_failed=False` — Home Assistant
+  appelle `async_start_reauth` sans changer l'état de l'entrée, qui reste
+  `LOADED` avec son listener. La réauth passe donc par la première branche
+  quand le mot de passe est ressaisi à l'identique, et par le listener sinon.
+
+Sans ce rechargement explicite, l'entrée resterait en erreur alors que les
+identifiants viennent d'être validés.
+
+Le helper vit dans `__init__.py`, et non dans le flux : `config_flow.py`
+n'est pas importable sous les mocks de `tests/conftest.py` — il dérive de
+`ConfigFlow` — donc un helper qui y resterait ne serait couvert que par
+analyse de source, ce qui avait déjà donné un test vert sur une garde
+inversée. Voir `tests/test_init.py::TestUpdateEntryAndEnsureReload`.
+
+Le listener a été conditionné aux options pendant un temps, pour éviter un
+double rechargement. **Ne pas rétablir cette condition** : elle rendrait une
+reconfiguration sans effet, puisqu'elle ne touche que les données.
+
+## Traductions
+
+`strings.json` n'est **jamais lu à l'exécution** pour une intégration
+personnalisée : Home Assistant ne charge que `translations/<langue>.json`, avec
+repli sur `en`. Une clé présente dans le seul `strings.json` s'affiche donc en
+clé brute à l'utilisateur.
+
+`en.json` n'est pas optionnel : `en` est la langue de **repli** de Home
+Assistant, donc ce que voit tout utilisateur non francophone. Les raisons
+d'abandon `reconfigure_successful` et `reauth_successful` sont produites par nos
+propres `async_abort` et se résolvent donc dans notre domaine. Sur les versions
+récentes, `async_update_reload_and_abort` les ferait résoudre par le cœur en
+passant `translation_domain` — mais ni ce passage ni le paramètre lui-même
+n'existent en 2024.11, le plancher déclaré : là-bas ces clés n'étaient pas
+mieux traduites avant la bascule qu'après. `translation_domain` n'est donc pas
+une alternative à ce fichier, sur aucune version supportée.
+
+`tests/test_translations.py` croise le flux et **tous** les fichiers de
+traduction ; ne pas le restreindre à `strings.json`.
+
 ## Méthode de diagnostic
 
 Le chemin nominal de la carte est instrumenté à dessein (`setConfig accepté`,
