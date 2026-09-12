@@ -282,8 +282,9 @@ Deux filtres dans `_loan_entries`, et **les deux sont nécessaires** :
 `async_remove_entry` n'exclut pas l'entrée en cours de suppression : Home
 Assistant la décharge avant d'appeler le handler, donc le filtre d'état s'en
 charge. **Ne pas se fier à sa présence dans la collection** : HA a inversé
-l'ordre en 2025.3 — avant, l'entrée était encore listée pendant le handler ;
-depuis, elle en est déjà sortie. Le filtre d'état est vrai des deux côtés.
+l'ordre en 2025.3, et l'entrée n'est plus listée pendant le handler. Le filtre
+d'état, lui, était déjà vrai avant l'inversion — c'est ce qui le rend
+préférable.
 
 L'ordre de `_loan_entries` n'est plus celui d'achèvement des setups, qui
 tournent concurremment, mais celui d'ajout à la collection. Plus déterministe,
@@ -296,7 +297,8 @@ verte : zéro capteur, et un `extend_loan` qui répond « aucun compte
 configuré ». D'où `tests/test_init.py::TestRuntimeDataIsActuallyWired`, qui lit
 la source — `sensor.py` n'étant pas importable sous les mocks.
 
-Le plancher tient : `runtime_data` et `ConfigEntry[T]` existent en 2024.11.
+`runtime_data` et `ConfigEntry[T]` existent depuis 2024.6 : bien en deçà du
+plancher, donc ce n'est pas ce refactor qui l'a fait bouger.
 
 ## Rechargement de l'entrée de configuration
 
@@ -335,6 +337,11 @@ Le listener a été conditionné aux options pendant un temps, pour éviter un
 double rechargement. **Ne pas rétablir cette condition** : elle rendrait une
 reconfiguration sans effet, puisqu'elle ne touche que les données.
 
+**Ne pas passer à `OptionsFlowWithReload`** non plus, malgré son nom engageant :
+sa propre docstring interdit de l'employer quand l'intégration enregistre un
+listener de mise à jour, et elle ne couvrirait de toute façon que les options —
+ni la reconfiguration ni la ré-authentification, qui ne touchent que `data`.
+
 ## Traductions
 
 `strings.json` n'est **jamais lu à l'exécution** pour une intégration
@@ -345,12 +352,12 @@ clé brute à l'utilisateur.
 `en.json` n'est pas optionnel : `en` est la langue de **repli** de Home
 Assistant, donc ce que voit tout utilisateur non francophone. Les raisons
 d'abandon `reconfigure_successful` et `reauth_successful` sont produites par nos
-propres `async_abort` et se résolvent donc dans notre domaine. Sur les versions
-récentes, `async_update_reload_and_abort` les ferait résoudre par le cœur en
-passant `translation_domain` — mais ni ce passage ni le paramètre lui-même
-n'existent en 2024.11, le plancher déclaré : là-bas ces clés n'étaient pas
-mieux traduites avant la bascule qu'après. `translation_domain` n'est donc pas
-une alternative à ce fichier, sur aucune version supportée.
+propres `async_abort` et se résolvent donc dans notre domaine. On pourrait croire que
+`async_update_reload_and_abort` les ferait résoudre par le cœur en passant
+`translation_domain` : **`FlowHandler.async_abort` n'accepte toujours pas ce
+paramètre**, vérifié jusqu'en 2026.1. Ce n'est donc une alternative à ce
+fichier sur aucune version, et ces clés n'étaient pas mieux traduites avant la
+bascule du rechargement qu'après.
 
 `tests/test_translations.py` croise le flux et **tous** les fichiers de
 traduction ; ne pas le restreindre à `strings.json`.
@@ -473,14 +480,59 @@ simule. Le job `import-check` de la CI l'installe, lui, pour de vrai.
 
 ## Version minimale de Home Assistant
 
-`2024.11.0`, déclarée dans `hacs.json`. Déterminée par les API réellement
-utilisées, vérifiées contre les sources de Home Assistant :
+`2026.1.0`, déclarée dans `hacs.json`. **C'est une politique de support, plus
+une dérivation des API utilisées** : décision de septembre 2026 de ne prendre
+en charge que la série 2026. Techniquement, la plus exigeante des API employées
+est `OptionsFlow.config_entry`, qui n'a besoin que de 2024.12.
 
-- `async_register_static_paths` et `StaticPathConfig` → 2024.7 (absents de
-  2024.6.0) ;
-- `getGridOptions()` de la carte → frontend `20241106.0`, soit **2024.11**.
+Ce qui reste vrai pour autant, et qu'il faut continuer à vérifier contre les
+sources avant d'employer une API nouvelle :
 
-Avant d'utiliser une nouvelle API de Home Assistant ou de son frontend,
-vérifier le tag qui l'introduit et relever ce plancher si besoin.
-`tests/test_manifest.py` n'est qu'un cliquet : il empêche de l'abaisser, il ne
-peut pas détecter qu'une API récente exige davantage.
+- `async_register_static_paths` et `StaticPathConfig` → 2024.7 ;
+- `getGridOptions()` de la carte → frontend `20241106.0`, soit 2024.11 ;
+- `entry.runtime_data` et `ConfigEntry[T]` → 2024.6 ;
+- `OptionsFlow.config_entry` → **2024.12** (à 2024.11, la propriété n'existait
+  que sur `OptionsFlowWithConfigEntry`).
+
+`tests/test_manifest.py` n'est qu'un cliquet : il empêche d'abaisser le
+plancher, il ne peut pas détecter qu'une API récente exige davantage.
+
+### Versions de Python
+
+Elles suivent le plancher, et elles divergent à dessein entre les jobs :
+
+- `target-version` de ruff et le job `test-python` sur **3.13**, le
+  `REQUIRED_PYTHON_VER` de 2026.1 ;
+- `import-check` tourne deux fois, sur les deux extrémités de l'intervalle
+  supporté : **3.13 avec `homeassistant==2026.1.0`**, le plancher lui-même, et
+  **3.14 avec la dernière**, qui l'exige depuis 2026.3. Sans la première, le
+  plancher ne serait qu'un nombre dans `hacs.json` que rien n'exécute. Sans la
+  seconde, on ne verrait pas l'amont casser l'intégration. Laisser la seconde
+  sur 3.13 ferait retomber la résolution sur un HA plus ancien, en silence :
+  d'où l'assertion sur la version obtenue.
+
+**Développer sur 3.13 au minimum.** La suite passe sur 3.12 — `conftest.py`
+simule Home Assistant, donc rien n'y dépend de son interpréteur — mais ce vert
+ne prouve rien pour un utilisateur du plancher.
+
+## Auditer les dépréciations
+
+Home Assistant a **deux** mécanismes, et le premier ne se voit ni à l'import
+ni en CI :
+
+- `report_usage()`, appelé à l'exécution, qui journalise ;
+- `helpers/deprecation.py` — `deprecated_function`, `DeprecatedConstant`,
+  `EnumWithDeprecatedMembers` — dont `check_if_deprecated_constant` se
+  déclenche, lui, **à l'import**, par le `__getattr__` du module.
+
+Pour vérifier ce qu'on utilise :
+
+```
+uv venv /tmp/ha --python 3.14
+uv pip install --python /tmp/ha/bin/python homeassistant beautifulsoup4 requests
+grep -rn "report_usage(" -A8 /tmp/ha/lib/*/site-packages/homeassistant/
+grep -rn "_DEPRECATED_" /tmp/ha/lib/*/site-packages/homeassistant/     # constantes
+```
+
+Croiser les messages obtenus avec nos appels. Audit de septembre 2026 contre
+2026.9.2 : aucune API utilisée n'est dépréciée.

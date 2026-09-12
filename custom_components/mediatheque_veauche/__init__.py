@@ -179,17 +179,18 @@ async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
 def _get_lovelace_resources(hass: HomeAssistant):
     """Récupère la collection de ressources Lovelace, ou None si indisponible.
 
-    La forme de hass.data['lovelace'] a changé selon les versions de HA
-    (dataclass LovelaceData récemment, dict auparavant), et en mode YAML la
-    collection n'est pas modifiable. On sonde défensivement : à défaut, on
-    retombe simplement sur add_extra_js_url.
+    On sonde défensivement plutôt que d'importer le composant lovelace : un
+    import créerait une dépendance que hassfest exigerait de déclarer dans le
+    manifeste. À défaut de collection, on retombe sur add_extra_js_url.
+
+    Le repli sur `lovelace.get("resources")` a disparu avec le plancher 2026 :
+    hass.data["lovelace"] était un dict jusqu'en 2025.1, c'est la dataclass
+    LovelaceData depuis 2025.2.
     """
     lovelace = hass.data.get("lovelace")
     if lovelace is None:
         return None
     resources = getattr(lovelace, "resources", None)
-    if resources is None and isinstance(lovelace, dict):
-        resources = lovelace.get("resources")
     if resources is None:
         return None
     # Mode YAML : collection en lecture seule, les ressources sont déclarées

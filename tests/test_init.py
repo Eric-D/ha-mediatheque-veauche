@@ -532,8 +532,8 @@ class TestRemoveEntry:
     existe, et un clic sur un service orphelin remonte une erreur opaque.
 
     Home Assistant décharge l'entrée avant d'appeler async_remove_entry : celle
-    qu'on supprime n'est donc plus LOADED, qu'elle soit encore listée dans la
-    collection (avant 2025.3) ou déjà sortie (depuis).
+    qu'on supprime n'est donc plus LOADED. Depuis 2025.3 elle a même déjà quitté
+    la collection ; le filtre d'état la couvre dans les deux cas.
     """
 
     @staticmethod

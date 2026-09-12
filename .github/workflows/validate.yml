@@ -73,7 +73,30 @@ jobs:
   # qu'un module importé existe réellement. Ce job le vérifie, avec le vrai
   # paquet installé.
   import-check:
+    # Les deux extrémités de l'intervalle supporté. Le plancher n'était
+    # jusqu'ici qu'une déclaration dans hacs.json : rien ne vérifiait qu'une
+    # API employée existe encore en dessous, et le cliquet de test_manifest ne
+    # peut pas le faire — il compare deux nombres.
+    name: import-check (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Épinglé au plancher déclaré dans hacs.json, et sur le Python que
+          # cette version exige. À bouger avec le plancher, pas avant.
+          - name: plancher
+            python-version: "3.13"
+            homeassistant: homeassistant==2026.1.0
+          # Volontairement non épinglé : ce job doit virer au rouge quand une
+          # version amont casse l'intégration. C'est le signal recherché, y
+          # compris sur l'exécution programmée quotidienne. 3.14 et non la
+          # version du plancher : le HA le plus récent l'exige depuis 2026.3,
+          # et sur 3.13 la résolution retomberait en silence sur une version
+          # plus ancienne — le job cesserait de faire ce pour quoi il existe.
+          - name: dernière
+            python-version: "3.14"
+            homeassistant: homeassistant
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -81,15 +104,12 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
-      # Home Assistant n'est volontairement pas épinglé : ce job doit virer au
-      # rouge quand une version amont casse l'intégration. C'est le signal
-      # recherché, y compris sur l'exécution programmée quotidienne.
       - name: Install Home Assistant and integration requirements
         run: |
           python -m pip install --upgrade pip
-          python -m pip install homeassistant
+          python -m pip install "${{ matrix.homeassistant }}"
           python scripts/manifest_requirements.py
           python -m pip install -r manifest-requirements.txt
 
@@ -109,6 +129,21 @@ jobs:
           params = inspect.signature(EntityRegistry.async_update_entity).parameters
           assert 'new_unique_id' in params, 'async_update_entity n\'accepte plus new_unique_id'
           print('ok signature async_update_entity')
+          # Le flux d'options ne reçoit plus l'entrée : il la tient de la
+          # propriété de sa classe de base. Rétablir l'argument produit un
+          # TypeError à l'ouverture des options, que rien d'autre ne verrait —
+          # importer le module ne construit pas le flux.
+          from custom_components.mediatheque_veauche.config_flow import (
+              MediathequeVeaucheConfigFlow,
+          )
+          MediathequeVeaucheConfigFlow.async_get_options_flow(None)
+          print('ok flux d options construit sans argument')
+          # Le job « dernière » retombe en silence sur un HA ancien si son
+          # interpréteur est trop vieux : la version obtenue doit rester dans
+          # l intervalle supporté.
+          from homeassistant.const import __version__ as ha_version
+          print('HA', ha_version)
+          assert int(ha_version.split('.')[0]) >= 2026, f'HA {ha_version} sous le plancher'
           "
 
   validate-frontend:

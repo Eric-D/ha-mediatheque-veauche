@@ -32,6 +32,11 @@ class TestHacsMinimumVersion:
     exige plus récent. C'est arrivé avec getGridOptions, qui n'existe qu'à
     partir du frontend 20241106.0 (Home Assistant 2024.11) et qui était passé
     inaperçu.
+
+    Le plancher n'est plus dérivé des seules API utilisées : c'est désormais
+    une politique de support, décidée en septembre 2026 — seule la série 2026
+    est prise en charge. Techniquement, la plus récente des API employées
+    (`OptionsFlow.config_entry`) n'exige que 2024.12.
     """
 
     def test_is_parsable(self):
@@ -39,14 +44,25 @@ class TestHacsMinimumVersion:
             f"version illisible : {HACS['homeassistant']!r}"
         )
 
+    def test_the_readme_announces_the_same_floor(self):
+        """Le README est le seul endroit qu'un utilisateur lit avant
+        d'installer. Il annonçait encore 2024.11 après un relèvement du
+        plancher, et rien ne croisait les deux fichiers."""
+        readme = (ROOT / "README.md").read_text("utf-8")
+        major, minor = HACS["homeassistant"].split(".")[:2]
+        assert f"**{major}.{minor}**" in readme, (
+            f"README.md n'annonce pas le plancher {major}.{minor} de hacs.json"
+        )
+
     def test_covers_the_apis_in_use(self):
         major, minor = (
             int(p) for p in re.match(r"^(\d+)\.(\d+)", HACS["homeassistant"]).groups()
         )
-        assert (major, minor) >= (2024, 11), (
+        assert (major, minor) >= (2026, 1), (
             f"plancher annoncé {HACS['homeassistant']} : trop bas. "
-            "async_register_static_paths et StaticPathConfig exigent 2024.7, "
-            "getGridOptions exige 2024.11."
+            "Politique de support : série 2026 uniquement. Les API employées "
+            "exigent au minimum 2024.12 (OptionsFlow.config_entry), "
+            "2024.11 (getGridOptions) et 2024.7 (async_register_static_paths)."
         )
 
 

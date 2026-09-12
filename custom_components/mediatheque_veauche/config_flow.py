@@ -6,9 +6,13 @@ from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 
 from . import update_entry_and_ensure_reload
 from .const import (
@@ -66,7 +70,7 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
@@ -94,7 +98,7 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle reconfiguration of credentials."""
         errors: dict[str, str] = {}
         # _get_reconfigure_entry lève UnknownEntry au lieu de renvoyer None,
@@ -160,13 +164,13 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Déclenché par ConfigEntryAuthFailed depuis le coordinator."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Redemande le mot de passe, l'identifiant étant celui de l'entrée."""
         entry = self._get_reauth_entry()
         username = entry.data[CONF_USERNAME]
@@ -192,26 +196,38 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        """Get the options flow."""
-        return MediathequeVeaucheOptionsFlow(config_entry)
+        """Get the options flow.
+
+        L'entrée reste dans la signature — c'est Home Assistant qui appelle —
+        mais n'est plus transmise : le flux la retrouve par sa propriété.
+        """
+        return MediathequeVeaucheOptionsFlow()
 
 
 class MediathequeVeaucheOptionsFlow(OptionsFlow):
-    """Handle options for Médiathèque de Veauche."""
+    """Handle options for Médiathèque de Veauche.
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self._config_entry = config_entry
+    Pas d'__init__ : la classe de base expose l'entrée via sa propriété
+    config_entry depuis 2024.12. La stocker soi-même est ce que faisait
+    OptionsFlowWithConfigEntry, que Home Assistant met en erreur pour ses
+    propres intégrations.
+
+    Pas non plus d'OptionsFlowWithReload, qui recharge l'entrée à la fin du
+    flux : sa docstring interdit de l'utiliser quand l'intégration enregistre
+    un listener de mise à jour, ce qui est notre cas — et ce listener doit
+    rester le seul point de rechargement, cf. CLAUDE.md.
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current_interval = self._config_entry.options.get(
+        current_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL,
-            self._config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
 
         return self.async_show_form(

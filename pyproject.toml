@@ -7,10 +7,11 @@ pythonpath = ["."]
 # linter et aucune ligne ne dépasse cette valeur. Reformater une trentaine de
 # lignes dans la PR qui introduit l'outil noierait les vraies corrections.
 line-length = 100
-# 3.12 et non 3.13 : Home Assistant 2024.11, notre plancher déclaré, exige
-# « >=3.12.0 ». Cibler 3.13 autoriserait pyupgrade à écrire une syntaxe qu'un
-# utilisateur sur 3.12 ne pourrait pas importer, et la CI ne le verrait pas.
-target-version = "py312"
+# Aligné sur REQUIRED_PYTHON_VER de notre plancher : Home Assistant 2026.1
+# exige « >=3.13.2 ». Cibler plus haut autoriserait pyupgrade à écrire une
+# syntaxe qu'un utilisateur du plancher ne pourrait pas importer, et la CI ne
+# le verrait pas — HA 2026.9 exige déjà 3.14.
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
