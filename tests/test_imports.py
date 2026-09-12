@@ -19,11 +19,11 @@ from __future__ import annotations
 # sensor.py et config_flow.py sont absents volontairement : ils dérivent de
 # classes Home Assistant, qu'un MagicMock ne peut pas servir de base. Leur
 # chargement est vérifié par le job « import-check » de la CI.
-import homeassistant.exceptions  # noqa: E402
+import homeassistant.exceptions
 import pytest
 
-import custom_components.mediatheque_veauche as integration  # noqa: E402
-import custom_components.mediatheque_veauche.scraper  # noqa: F401,E402
+import custom_components.mediatheque_veauche as integration
+import custom_components.mediatheque_veauche.scraper  # noqa: F401
 
 # Surface d'import attendue de l'intégration. À mettre à jour sciemment quand
 # un import est ajouté — et à vérifier contre la documentation de Home

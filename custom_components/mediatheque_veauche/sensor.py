@@ -44,7 +44,7 @@ async def _async_take_over_legacy_cache(hass: HomeAssistant, username: str) -> d
             _LOGGER.info("Reprise du cache disque hérité de %s", username)
             await legacy.async_remove()
         return data
-    except Exception:  # noqa: BLE001 - jamais bloquant pour le setup
+    except Exception:
         _LOGGER.exception("Reprise du cache hérité impossible")
         return {}
 

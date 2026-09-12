@@ -230,12 +230,17 @@ le code a été écrit sans linter, aucune ligne ne dépasse cette valeur, et
 reformater une trentaine de lignes dans la PR qui introduit l'outil aurait noyé
 les vraies corrections.
 
-**Pas d'ESLint côté TypeScript, et ce n'est pas un oubli** : `typescript-eslint`
-déclare une plage de pairs `>=4.8.4 <6.1.0` et ne supporte donc pas encore
-TypeScript 7, adopté ici. L'installer demanderait `--force` — outillage
-potentiellement cassé sur la syntaxe TS 7 — ou de rétrograder TypeScript. À
-reprendre quand le support arrivera. En attendant, `tsc` tourne en mode strict
-avec `noUnusedLocals` et `noUnusedParameters`, ce qui couvre une bonne part.
+`npm run lint` côté TypeScript — **oxlint**, pas ESLint. `typescript-eslint`
+déclare une plage de pairs `>=4.8.4 <6.1.0` et ne supporte donc pas TypeScript 7,
+adopté ici : l'installer demanderait `--force`, donc un outillage dont on ne
+pourrait pas croire les résultats sur une syntaxe qu'il ne parse pas. oxlint a
+son propre parser et aucune dépendance de pair sur TypeScript.
+
+Il tourne sur son ruleset `correctness` par défaut, zéro constat. Ne pas élargir
+à `suspicious` ou `pedantic` sans réfléchir : `no-underscore-dangle` y produit
+une trentaine de faux positifs sur la convention `_private` des cartes Lovelace,
+et `unicorn(no-array-sort)` en signale trois autres sur des tris qui portent
+déjà sur des copies.
 
 ## Exécuter les tests
 

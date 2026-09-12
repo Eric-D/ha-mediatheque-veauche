@@ -221,7 +221,7 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> bool:
         )
         _LOGGER.info("Ressource Lovelace enregistrée : %s", CARD_RESOURCE_URL)
         return True
-    except Exception:  # noqa: BLE001 - ne doit jamais empêcher le setup
+    except Exception:
         _LOGGER.exception("Enregistrement de la ressource Lovelace impossible")
         return False
 
