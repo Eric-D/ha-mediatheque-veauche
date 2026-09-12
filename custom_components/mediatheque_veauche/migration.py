@@ -1,8 +1,13 @@
-"""Migration des identifiants uniques d'entités.
+"""Identifiants uniques des entités : construction et migration.
 
-Module sans dépendance Home Assistant, pour rester testable : sensor.py, qui
-l'utilise, ne l'est pas — il dérive de classes Home Assistant qu'un mock ne peut
+Point unique où vit cette logique, appelée par `__init__` au démarrage et par
+`config_flow` avant un changement de login. Elle est ici plutôt que dans
+`sensor.py` pour rester testable : `sensor.py` n'est pas importable sous les
+mocks du conftest, dérivant de classes Home Assistant qu'un MagicMock ne peut
 pas servir de base.
+
+Opération irréversible qui ne s'exécute qu'une fois chez chaque utilisateur :
+s'y tromper perd son historique. Lire `CLAUDE.md` avant d'y toucher.
 """
 from __future__ import annotations
 
