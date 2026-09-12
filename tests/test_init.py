@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import custom_components.mediatheque_veauche as integration
+import pytest
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
 from custom_components.mediatheque_veauche import (
+    _async_extend_loan,
     _loan_entries,
     _mark_loan_extended,
     _owns_loan,
@@ -181,6 +185,20 @@ class TestOwnsLoan:
         coordinator = _Coordinator({"membres": {"Jean": ["pas un dict"]}})
         assert not _owns_loan({"coordinator": coordinator}, "u1")
 
+    @pytest.mark.parametrize("membres", [None, "pasundict", 42, []])
+    def test_malformed_membres_does_not_raise(self, membres):
+        """Une exception ici interromprait la boucle de _select_entry.
+
+        Un seul compte aux données corrompues empêcherait alors tous les autres
+        de prolonger.
+        """
+        coordinator = _Coordinator({"membres": membres})
+        assert not _owns_loan({"coordinator": coordinator}, "u1")
+
+    def test_loans_not_a_list(self):
+        coordinator = _Coordinator({"membres": {"Jean": None}})
+        assert not _owns_loan({"coordinator": coordinator}, "u1")
+
 
 class TestSelectEntry:
     """Se tromper de compte est silencieux et coûteux.
@@ -198,10 +216,25 @@ class TestSelectEntry:
         entries = [("a", _account("u1")), ("b", _account("u2"))]
         assert _select_entry(entries, "inconnue") is None
 
-    def test_single_account_is_unambiguous(self):
-        """Un seul compte : on tente même sans données, cas du démarrage à froid."""
+    def test_single_account_without_the_loan_is_not_a_fallback(self):
+        """Pas de repli sur « le seul compte configuré ».
+
+        Avec deux comptes dont un en échec de configuration, il ne reste qu'une
+        entrée : un repli enverrait l'URL du compte absent sur la session de
+        l'autre — le bug corrigé ici, redevenu silencieux.
+        """
         entries = [("a", _account("u1", coordinator=False))]
-        assert _select_entry(entries, "u1")[0] == "a"
+        assert _select_entry(entries, "u1") is None
+
+    def test_same_url_in_two_accounts_takes_the_first(self):
+        """Cas réel : deux conjoints voient les mêmes prêts de famille.
+
+        L'une ou l'autre session prolonge correctement, donc pas de casse. Mais
+        seul le coordinator sélectionné est marqué : la carte de l'autre compte
+        affichera « Prolonger » jusqu'au prochain cycle.
+        """
+        entries = [("a", _account("commune")), ("b", _account("commune"))]
+        assert _select_entry(entries, "commune")[0] == "a"
 
     def test_no_account_at_all(self):
         assert _select_entry([], "u1") is None
@@ -232,3 +265,100 @@ class TestLoanEntries:
             data: dict = {}
 
         assert _loan_entries(_Hass()) == []
+
+
+class _Client:
+    """Client factice qui enregistre les prolongations demandées."""
+
+    def __init__(self, name, fails=False):
+        self.name = name
+        self.calls: list[str] = []
+        self.fails = fails
+
+    def extend_loan(self, url):
+        self.calls.append(url)
+        if self.fails:
+            raise RuntimeError("500 Server Error for url: https://…/extend/1")
+
+
+class _RecordingCoordinator(_Coordinator):
+    def __init__(self, data):
+        super().__init__(data)
+        self.updates: list[dict] = []
+
+    def async_set_updated_data(self, data):
+        self.updates.append(data)
+
+
+class _Hass:
+    def __init__(self, entries):
+        self.data = {"mediatheque_veauche": dict(entries)}
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+def _wired_account(name, *urls, fails=False):
+    """Entrée complète : client ET coordinator, comme async_setup_entry la pose."""
+    return {
+        "client": _Client(name, fails=fails),
+        "username": name,
+        "options": {},
+        "coordinator": _RecordingCoordinator(
+            {"membres": {name: [{"titre": "Livre", "extend_url": u} for u in urls]}}
+        ),
+    }
+
+
+class TestExtendLoanWiring:
+    """Le câblage, pas seulement le choix.
+
+    Tester la seule fonction de sélection laissait passer une régression qui
+    aurait rebranché l'appel sur la première entrée : les tests seraient restés
+    verts alors que le bug d'origine serait revenu.
+    """
+
+    @staticmethod
+    def _run(coro):
+        import asyncio
+
+        return asyncio.new_event_loop().run_until_complete(coro)
+
+    def test_calls_the_owning_client(self):
+        a = _wired_account("a", "u1")
+        b = _wired_account("b", "u2")
+        hass = _Hass({"ea": a, "eb": b})
+
+        self._run(_async_extend_loan(hass, "u2"))
+
+        assert a["client"].calls == []
+        assert b["client"].calls == ["u2"]
+
+    def test_marks_the_owning_coordinator_only(self):
+        a = _wired_account("a", "u1")
+        b = _wired_account("b", "u2")
+        hass = _Hass({"ea": a, "eb": b})
+
+        self._run(_async_extend_loan(hass, "u2"))
+
+        assert a["coordinator"].updates == []
+        assert len(b["coordinator"].updates) == 1
+        marked = b["coordinator"].updates[0]["membres"]["b"][0]
+        assert marked["extended"] is True
+        assert marked["extend_url"] is None
+
+    def test_no_account_configured(self):
+        with pytest.raises(ServiceValidationError):
+            self._run(_async_extend_loan(_Hass({}), "u1"))
+
+    def test_loan_not_found_anywhere(self):
+        hass = _Hass({"ea": _wired_account("a", "u1")})
+        with pytest.raises(ServiceValidationError):
+            self._run(_async_extend_loan(hass, "inconnue"))
+
+    def test_portal_failure_is_wrapped(self):
+        """L'erreur brute de requests contient l'URL de prolongation."""
+        hass = _Hass({"ea": _wired_account("a", "u1", fails=True)})
+        with pytest.raises(HomeAssistantError) as excinfo:
+            self._run(_async_extend_loan(hass, "u1"))
+        assert "La prolongation a échoué" in str(excinfo.value)

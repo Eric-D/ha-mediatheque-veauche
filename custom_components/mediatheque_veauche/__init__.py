@@ -12,7 +12,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.start import async_at_started
 
@@ -66,11 +66,17 @@ def _owns_loan(entry_data: dict, extend_url: str) -> bool:
     """Le compte de cette entrée a-t-il un prêt portant cette URL ?"""
     coordinator = entry_data.get("coordinator")
     data = getattr(coordinator, "data", None) or {}
+    membres = data.get("membres")
+    if not isinstance(membres, dict):
+        return False
+    # Les gardes portent sur chaque niveau : une exception ici interromprait la
+    # boucle de _select_entry, et un seul compte aux données corrompues
+    # empêcherait tous les autres de prolonger.
     return any(
-        loan.get("extend_url") == extend_url
-        for loans in (data.get("membres") or {}).values()
+        isinstance(loan, dict) and loan.get("extend_url") == extend_url
+        for loans in membres.values()
+        if isinstance(loans, list)
         for loan in loans
-        if isinstance(loan, dict)
     )
 
 
@@ -81,18 +87,20 @@ def _select_entry(
 
     Fonction pure, séparée du handler pour être testable sans Home Assistant.
 
-    Avec plusieurs comptes configurés, se tromper est silencieux et coûteux :
-    la session du mauvais compte ne possède pas ce prêt, le portail répond une
-    page d'erreur ou une redirection, et rien ne le signale. On préfère donc ne
-    rien faire plutôt que deviner. Avec un seul compte il n'y a pas
-    d'ambiguïté, et on tente même si les données du coordinator sont encore
-    vides — cas d'un démarrage à froid.
+    Aucun repli sur « le seul compte configuré » : la carte ne peut proposer
+    « Prolonger » que pour une URL lue dans les attributs du coordinator, et
+    sensor.py pré-remplit ce coordinator depuis le cache disque avant même
+    d'ajouter les entités. Une URL introuvable est donc périmée ou étrangère,
+    jamais un démarrage à froid.
+
+    Le repli était d'ailleurs contre-productif : avec deux comptes dont un en
+    échec de configuration, il ne restait qu'une entrée, et l'URL du compte
+    absent partait sur la session de l'autre — exactement le bug corrigé ici,
+    mais redevenu silencieux.
     """
     for entry_id, data in entries:
         if _owns_loan(data, extend_url):
             return entry_id, data
-    if len(entries) == 1:
-        return entries[0]
     return None
 
 
@@ -103,6 +111,50 @@ def _loan_entries(hass: HomeAssistant) -> list[tuple[str, dict]]:
         for entry_id, data in hass.data.get(DOMAIN, {}).items()
         if isinstance(data, dict) and "client" in data
     ]
+
+
+async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
+    """Prolonge un prêt sur le compte qui le détient.
+
+    Au niveau module et non dans une closure : c'est le seul moyen de tester le
+    câblage — que le client appelé et le coordinator mis à jour soient bien ceux
+    de l'entrée sélectionnée. Tester la seule fonction de sélection laissait
+    passer une régression qui aurait rebranché le tout sur la première entrée.
+    """
+    entries = _loan_entries(hass)
+    if not entries:
+        raise ServiceValidationError(
+            "Aucun compte médiathèque configuré pour prolonger ce prêt"
+        )
+
+    selected = _select_entry(entries, extend_url)
+    if selected is None:
+        raise ServiceValidationError(
+            "Prêt introuvable dans les données des comptes configurés : "
+            "impossible de déterminer lequel doit le prolonger"
+        )
+
+    entry_id, entry_data = selected
+    try:
+        await hass.async_add_executor_job(entry_data["client"].extend_loan, extend_url)
+    except Exception as err:
+        # Enveloppé : sans ça, l'erreur brute de requests remonte en « erreur
+        # inconnue » avec une trace complète, et son message — qui contient
+        # l'URL de prolongation — s'affiche tel quel dans la notification.
+        _LOGGER.error("Erreur lors de la prolongation: %s", err)
+        raise HomeAssistantError(f"La prolongation a échoué : {err}") from err
+
+    coordinator = entry_data.get("coordinator")
+    if coordinator and coordinator.data:
+        updated = _mark_loan_extended(coordinator.data, extend_url)
+        if updated is not None:
+            coordinator.async_set_updated_data(updated)
+        else:
+            _LOGGER.warning(
+                "Prolongation réussie mais prêt introuvable dans les données du "
+                "compte %s : la carte ne se mettra à jour qu'au prochain cycle",
+                entry_id,
+            )
 
 
 def _get_lovelace_resources(hass: HomeAssistant):
@@ -243,51 +295,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "options": dict(entry.options),
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     # Register extend_loan service (once)
     if not hass.services.has_service(DOMAIN, SERVICE_EXTEND_LOAN):
         async def handle_extend_loan(call: ServiceCall) -> None:
-            """Prolonge un prêt, sur le compte qui le détient."""
-            extend_url = call.data["extend_url"]
-            entries = _loan_entries(hass)
-            if not entries:
-                raise HomeAssistantError(
-                    "Aucun compte médiathèque configuré pour prolonger ce prêt"
-                )
-
-            selected = _select_entry(entries, extend_url)
-            if selected is None:
-                raise HomeAssistantError(
-                    "Prêt introuvable dans les données des comptes configurés : "
-                    "impossible de déterminer lequel doit le prolonger"
-                )
-
-            entry_id, entry_data = selected
-            try:
-                await hass.async_add_executor_job(
-                    entry_data["client"].extend_loan, extend_url
-                )
-            except Exception as err:
-                _LOGGER.error("Erreur lors de la prolongation: %s", err)
-                raise
-
-            coordinator = entry_data.get("coordinator")
-            if coordinator and coordinator.data:
-                updated = _mark_loan_extended(coordinator.data, extend_url)
-                if updated is not None:
-                    coordinator.async_set_updated_data(updated)
-                else:
-                    _LOGGER.warning(
-                        "Prolongation réussie mais prêt introuvable dans les "
-                        "données du compte %s : la carte ne se mettra à jour "
-                        "qu'au prochain cycle",
-                        entry_id,
-                    )
+            """Point d'entrée du service ; la logique est testable au niveau module."""
+            await _async_extend_loan(hass, call.data["extend_url"])
 
         hass.services.async_register(
             DOMAIN, SERVICE_EXTEND_LOAN, handle_extend_loan, schema=SERVICE_EXTEND_SCHEMA
         )
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
@@ -314,9 +332,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        # Le service était enregistré au premier setup et jamais retiré : après
-        # suppression du dernier compte il restait proposé dans l'interface et
-        # échouait sur un hass.data vidé.
-        if not _loan_entries(hass):
-            hass.services.async_remove(DOMAIN, SERVICE_EXTEND_LOAN)
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Retire le service quand le dernier compte est supprimé.
+
+    Au retrait de l'entrée et non à son déchargement : un rechargement passe
+    par unload puis setup, et retirer le service entre les deux laisserait une
+    fenêtre — le temps du setup de la plateforme, entrées/sorties disque
+    comprises — pendant laquelle un clic sur la carte reçoit ServiceNotFound.
+    Les rechargements sont fréquents : changement d'options, reconfiguration,
+    ré-authentification.
+    """
+    if not _loan_entries(hass):
+        hass.services.async_remove(DOMAIN, SERVICE_EXTEND_LOAN)

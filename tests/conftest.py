@@ -84,3 +84,25 @@ def mocked_ha_modules() -> set[str]:
 def mocked_roots() -> set[str]:
     """Racines simulées. Vide si les vrais paquets sont installés."""
     return MOCKED_ROOTS
+
+
+# Vraies classes d'exception dans le module simulé.
+#
+# Un MagicMock ne peut pas être levé (« exceptions must derive from
+# BaseException »), donc tout code de production qui lève rendait sa fonction
+# intestable — et le harnais donnait 100 % de vert sur du câblage faux.
+if "homeassistant" in MOCKED_ROOTS:
+    import homeassistant.exceptions as _ha_exceptions
+
+    class HomeAssistantError(Exception):
+        """Équivalent local de homeassistant.exceptions.HomeAssistantError."""
+
+    class ServiceValidationError(HomeAssistantError):
+        """Équivalent local de ServiceValidationError."""
+
+    class ConfigEntryAuthFailed(HomeAssistantError):
+        """Équivalent local de ConfigEntryAuthFailed."""
+
+    _ha_exceptions.HomeAssistantError = HomeAssistantError
+    _ha_exceptions.ServiceValidationError = ServiceValidationError
+    _ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
