@@ -18,6 +18,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from .migration import async_migrate_unique_ids
 from .scraper import (
     AuthenticationError,
     InvalidCredentialsError,
@@ -111,6 +112,14 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
                 if error:
                     errors["base"] = error
                 else:
+                    # Migrer AVANT d'écrire le nouveau login. L'entrée porte
+                    # encore l'ancien, donc la correspondance exacte fonctionne.
+                    # Sans ça, une entrée désactivée — jamais configurée, donc
+                    # jamais migrée — reconfigurée avec un nouveau login verrait
+                    # la migration ultérieure ne correspondre à rien, et cinq
+                    # entités neuves remplacer les siennes. Idempotent : au
+                    # prochain démarrage, la migration redevient un no-op.
+                    await async_migrate_unique_ids(self.hass, entry)
                     # unique_id suit l'identifiant : sans ça, une entrée
                     # ultérieure portant le nouveau login ne serait pas détectée
                     # comme doublon. Les identifiants uniques des entités, eux,

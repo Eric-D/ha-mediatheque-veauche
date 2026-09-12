@@ -11,14 +11,13 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
-from .migration import migrated_unique_id
+from .migration import async_migrate_unique_ids
 from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,50 +112,6 @@ def _loan_entries(hass: HomeAssistant) -> list[tuple[str, dict]]:
         for entry_id, data in hass.data.get(DOMAIN, {}).items()
         if isinstance(data, dict) and "client" in data
     ]
-
-
-async def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Réécrit les identifiants uniques hérités du login vers l'entry_id.
-
-    Ici et non dans la plateforme sensor : une exception y serait avalée par
-    entity_platform, qui journaliserait et renverrait False. L'entrée
-    resterait affichée « chargée » avec zéro capteur, à chaque redémarrage et
-    sans réessai. Pour une opération irréversible, mieux vaut échouer
-    bruyamment.
-    """
-    username = entry.data[CONF_USERNAME]
-    registry = er.async_get(hass)
-
-    @callback
-    def _migrate(registry_entry: er.RegistryEntry) -> dict | None:
-        new_unique_id = migrated_unique_id(
-            entry.entry_id, username, registry_entry.unique_id
-        )
-        if new_unique_id is None:
-            return None
-        # Home Assistant lève une ValueError si l'identifiant est déjà pris, et
-        # async_migrate_entries n'attrape rien : la migration s'arrêterait en
-        # laissant l'utilisateur sans capteurs. Échouer proprement lui laisse
-        # les siens et une ligne de journal.
-        conflict = registry.async_get_entity_id(
-            registry_entry.domain, DOMAIN, new_unique_id
-        )
-        if conflict:
-            _LOGGER.warning(
-                "Migration de %s abandonnée : %s est déjà utilisé par %s",
-                registry_entry.unique_id,
-                new_unique_id,
-                conflict,
-            )
-            return None
-        _LOGGER.info(
-            "Migration de l'identifiant unique %s vers %s",
-            registry_entry.unique_id,
-            new_unique_id,
-        )
-        return {"new_unique_id": new_unique_id}
-
-    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
 
 
 async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
@@ -354,7 +309,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Avant la création des entités : leurs identifiants uniques dérivaient du
     # login, donc en changer aurait créé cinq entités neuves et orpheliné les
     # anciennes. Idempotente, donc rejouée à chaque démarrage.
-    await _async_migrate_unique_ids(hass, entry)
+    await async_migrate_unique_ids(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

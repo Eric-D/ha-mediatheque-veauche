@@ -12,10 +12,11 @@ import re
 
 import pytest
 
-import custom_components.mediatheque_veauche as integration
+from custom_components.mediatheque_veauche import migration
 from custom_components.mediatheque_veauche.const import DOMAIN
 from custom_components.mediatheque_veauche.migration import (
     ENTITY_SUFFIXES,
+    async_migrate_unique_ids,
     build_unique_id,
     migrated_unique_id,
 )
@@ -77,6 +78,7 @@ class _RegistryEntry:
         self.unique_id = unique_id
         self.entity_id = entity_id
         self.domain = domain
+        self.platform = DOMAIN
 
 
 class _FakeRegistry:
@@ -115,16 +117,16 @@ class _Entry:
 class TestMigrationWiring:
     @staticmethod
     def _run(hass, entry, registry, monkeypatch):
-        monkeypatch.setattr(integration.er, "async_get", lambda _hass: registry)
+        monkeypatch.setattr(migration.er, "async_get", lambda _hass: registry)
 
         async def _migrate_entries(_hass, _entry_id, callback):
             registry.apply(callback)
 
-        monkeypatch.setattr(integration.er, "async_migrate_entries", _migrate_entries)
+        monkeypatch.setattr(migration.er, "async_migrate_entries", _migrate_entries)
 
         import asyncio
 
-        asyncio.run(integration._async_migrate_unique_ids(hass, entry))
+        asyncio.run(async_migrate_unique_ids(hass, entry))
 
     def test_migrates_the_current_login(self, monkeypatch):
         registry = _FakeRegistry(
@@ -172,6 +174,33 @@ class TestMigrationWiring:
         registry = _FakeRegistry([])
         self._run(None, _Entry(ENTRY_ID, USERNAME), registry, monkeypatch)
         assert registry.entries == []
+
+
+class TestReconfigureMigratesFirst:
+    """config_flow.py n'est pas importable sous les mocks : on lit la source.
+
+    Une entrée désactivée n'a jamais été configurée, donc jamais migrée. La
+    reconfigurer avec un nouveau login ferait ensuite échouer la correspondance
+    exacte — les entités portent l'ancien — et cinq entités neuves
+    remplaceraient les siennes, silencieusement et définitivement. La migration
+    doit donc avoir lieu pendant que l'entrée porte encore l'ancien login.
+    """
+
+    SOURCE = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "custom_components/mediatheque_veauche/config_flow.py"
+    ).read_text("utf-8")
+
+    def test_migration_is_called_in_reconfigure(self):
+        assert "await async_migrate_unique_ids(self.hass, entry)" in self.SOURCE
+
+    def test_migration_precedes_the_login_change(self):
+        migration = self.SOURCE.index("await async_migrate_unique_ids(self.hass, entry)")
+        update = self.SOURCE.index("unique_id=new_username")
+        assert migration < update, (
+            "la migration doit précéder l'écriture du nouveau login, sinon la "
+            "correspondance exacte ne trouve plus rien"
+        )
 
 
 class TestSuffixesMatchTheSensors:

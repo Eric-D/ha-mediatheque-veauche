@@ -6,7 +6,15 @@ pas servir de base.
 """
 from __future__ import annotations
 
-from .const import DOMAIN
+import logging
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+import homeassistant.helpers.entity_registry as er
+
+from .const import CONF_USERNAME, DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 # Formats historiques, tous dérivés du login. Cette liste ne doit jamais
 # rétrécir : un utilisateur qui n'a pas encore démarré depuis la mise à jour a
@@ -52,3 +60,47 @@ def migrated_unique_id(
         if old_unique_id == f"{DOMAIN}_{username}_{suffix}":
             return build_unique_id(entry_id, suffix)
     return None
+
+
+async def async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Réécrit les identifiants uniques hérités du login vers l'entry_id.
+
+    Ici et non dans la plateforme sensor : une exception y serait avalée par
+    entity_platform, qui journaliserait et renverrait False. L'entrée
+    resterait affichée « chargée » avec zéro capteur, à chaque redémarrage et
+    sans réessai. Pour une opération irréversible, mieux vaut échouer
+    bruyamment.
+    """
+    username = entry.data[CONF_USERNAME]
+    registry = er.async_get(hass)
+
+    @callback
+    def _migrate(registry_entry: er.RegistryEntry) -> dict | None:
+        new_unique_id = migrated_unique_id(
+            entry.entry_id, username, registry_entry.unique_id
+        )
+        if new_unique_id is None:
+            return None
+        # Home Assistant lève une ValueError si l'identifiant est déjà pris, et
+        # async_migrate_entries n'attrape rien : la migration s'arrêterait en
+        # laissant l'utilisateur sans capteurs. Échouer proprement lui laisse
+        # les siens et une ligne de journal.
+        conflict = registry.async_get_entity_id(
+            registry_entry.domain, registry_entry.platform, new_unique_id
+        )
+        if conflict:
+            _LOGGER.warning(
+                "Migration de %s abandonnée : %s est déjà utilisé par %s",
+                registry_entry.unique_id,
+                new_unique_id,
+                conflict,
+            )
+            return None
+        _LOGGER.info(
+            "Migration de l'identifiant unique %s vers %s",
+            registry_entry.unique_id,
+            new_unique_id,
+        )
+        return {"new_unique_id": new_unique_id}
+
+    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
