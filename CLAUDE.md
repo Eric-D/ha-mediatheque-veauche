@@ -143,10 +143,20 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   dépendent d'aucun élément et ne sont annulés par rien — légitime, ils sont à
   usage unique et plafonnés à quatre secondes.
 
-`frontend/src/card.ts` fait plus de 900 lignes, pour un objectif affiché de
-300. Dette
-connue, pas invariant respecté. Les candidats évidents à l'extraction sont le
-rendu des modales et le bloc d'enregistrement de l'élément.
+`frontend/src/card.ts` fait environ 790 lignes, pour un objectif affiché de 300.
+Les rendus purement présentatifs vivent dans `renders/` : ils ne touchent pas à
+l'état de la carte et reçoivent leurs gestionnaires en paramètres. Ce qui reste
+est le cycle de vie Lit, la validation de configuration, le choix des données à
+afficher, et le bloc d'enregistrement de l'élément.
+
+**Ne pas extraire le bloc d'enregistrement** sans très bonne raison : c'est le
+code le plus débogué du fichier, et aucun test frontend ne rattraperait une
+erreur.
+
+Les signatures à plusieurs paramètres de même type passent par un objet nommé
+(`renderHeader({ title, badgeText, … })`). Deux chaînes adjacentes dans une
+signature positionnelle s'inversent sans que le typage ni le linter ne disent
+rien, et sans test frontend personne ne le verrait.
 
 ## Identifiants uniques des entités
 
