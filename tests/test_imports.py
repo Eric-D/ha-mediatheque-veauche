@@ -21,7 +21,8 @@ import pytest
 # sensor.py et config_flow.py sont absents volontairement : ils dérivent de
 # classes Home Assistant, qu'un MagicMock ne peut pas servir de base. Leur
 # chargement est vérifié par le job « import-check » de la CI.
-import custom_components.mediatheque_veauche  # noqa: F401,E402
+import homeassistant.exceptions  # noqa: E402
+import custom_components.mediatheque_veauche as integration  # noqa: E402
 import custom_components.mediatheque_veauche.scraper  # noqa: F401,E402
 
 # Surface d'import attendue de l'intégration. À mettre à jour sciemment quand
@@ -35,6 +36,7 @@ EXPECTED = {
     "homeassistant.config_entries",
     "homeassistant.const",
     "homeassistant.core",
+    "homeassistant.exceptions",
     "homeassistant.helpers",
     "homeassistant.helpers.config_validation",
     "homeassistant.helpers.start",
@@ -64,3 +66,18 @@ def test_expected_surface_is_actually_used(mocked_ha_modules, mocked_roots):
     expected = {m for m in EXPECTED if m.split(".")[0] in mocked_roots}
     stale = {m for m in expected if m not in mocked_ha_modules}
     assert not stale, f"Modules listés mais plus importés : {sorted(stale)}"
+
+
+def test_patched_exceptions_are_really_imported():
+    """Rétablit le signal que le patch du conftest efface.
+
+    conftest importe homeassistant.exceptions pour y injecter de vraies classes
+    levables, donc ce module figure dans MOCKED_MODULES même si le code de
+    production cessait de l'importer — et test_expected_surface_is_actually_used
+    ne le signalerait plus comme périmé. Cette assertion échoue, elle, si
+    l'import disparaît du code.
+    """
+    assert integration.ServiceValidationError is (
+        homeassistant.exceptions.ServiceValidationError
+    )
+    assert integration.HomeAssistantError is homeassistant.exceptions.HomeAssistantError

@@ -789,7 +789,15 @@ export class MediathequeCard extends LitElement {
   private _confirmExtendNow = (): void => {
     const url = this._confirmExtend?.loan.extend_url;
     if (url && this._hass) {
-      void this._hass.callService('mediatheque_veauche', 'extend_loan', { extend_url: url });
+      // Home Assistant relance après avoir affiché sa notification : sans
+      // catch, chaque échec produit une promesse rejetée non gérée dans la
+      // console. Le service échoue désormais explicitement quand le prêt
+      // n'appartient à aucun compte, donc ce chemin est réellement atteignable.
+      void this._hass
+        .callService('mediatheque_veauche', 'extend_loan', { extend_url: url })
+        .catch((e: unknown) => {
+          mcLog('warn', 'card', 'la prolongation a échoué : %o', e);
+        });
     }
     this._confirmExtend = null;
     this._detailLoan = null;
