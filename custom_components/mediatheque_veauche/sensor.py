@@ -25,6 +25,7 @@ from .const import (
 )
 from .coordinator import (
     STORAGE_VERSION,
+    MediathequeConfigEntry,
     MediathequeDataSource,
     async_load_cache,
 )
@@ -36,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: MediathequeConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor from a config entry."""
@@ -46,7 +47,7 @@ async def async_setup_entry(
         entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
 
-    client = hass.data[DOMAIN][entry.entry_id]["client"]
+    client = entry.runtime_data.client
 
     # Indexé sur l'entry_id et non sur le login : sinon changer de login
     # repartait d'un cache vide, donc capteurs « unknown » jusqu'au premier
@@ -73,8 +74,8 @@ async def async_setup_entry(
     # recevoir le coordinator à la construction : il lui faut sa méthode.
     source.coordinator = coordinator
 
-    # Store coordinator reference for service access
-    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
+    # Le service extend_loan le retrouve par là pour rafraîchir le bon compte.
+    entry.runtime_data.coordinator = coordinator
 
     # Pre-fill coordinator with cached data so sensors have values immediately
     if cached.get("data"):

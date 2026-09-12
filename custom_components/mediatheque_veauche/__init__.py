@@ -10,13 +10,14 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .coordinator import MediathequeConfigEntry, MediathequeRuntimeData
 from .migration import async_migrate_unique_ids
 from .scraper import MediathequeVeaucheClient
 
@@ -63,10 +64,9 @@ def _mark_loan_extended(data: dict, extend_url: str) -> dict | None:
     return None
 
 
-def _owns_loan(entry_data: dict, extend_url: str) -> bool:
+def _owns_loan(entry_data: MediathequeRuntimeData, extend_url: str) -> bool:
     """Le compte de cette entrée a-t-il un prêt portant cette URL ?"""
-    coordinator = entry_data.get("coordinator")
-    data = getattr(coordinator, "data", None) or {}
+    data = getattr(entry_data.coordinator, "data", None) or {}
     membres = data.get("membres")
     if not isinstance(membres, dict):
         return False
@@ -82,8 +82,8 @@ def _owns_loan(entry_data: dict, extend_url: str) -> bool:
 
 
 def _select_entry(
-    entries: list[tuple[str, dict]], extend_url: str
-) -> tuple[str, dict] | None:
+    entries: list[tuple[str, MediathequeRuntimeData]], extend_url: str
+) -> tuple[str, MediathequeRuntimeData] | None:
     """Choisit le compte à qui appartient ce prêt.
 
     Fonction pure, séparée du handler pour être testable sans Home Assistant.
@@ -105,12 +105,30 @@ def _select_entry(
     return None
 
 
-def _loan_entries(hass: HomeAssistant) -> list[tuple[str, dict]]:
-    """Entrées de configuration réellement configurées, dans l'ordre d'insertion."""
+def _loan_entries(hass: HomeAssistant) -> list[tuple[str, MediathequeRuntimeData]]:
+    """Comptes utilisables, dans l'ordre d'ajout à la collection.
+
+    Deux filtres, et les deux sont nécessaires :
+
+    - `runtime_data` n'existe pas tant qu'async_setup_entry ne l'a pas posé, et
+      Home Assistant le supprime au déchargement réussi. Ça écarte les entrées
+      désactivées, ignorées et déchargées.
+    - l'état, parce que `runtime_data` est posé en première instruction et
+      **survit à un setup qui échoue ensuite** : HA ne le supprime que sur le
+      chemin du déchargement. Sans ce filtre, un compte resté en erreur
+      continue de compter — et empêche le retrait du service `extend_loan` le
+      jour où le dernier compte valide est supprimé. C'était déjà le défaut du
+      dictionnaire global ; le porter tel quel l'aurait reconduit.
+
+    L'ordre n'est plus celui d'achèvement des setups, qui tournent
+    concurremment, mais celui d'ajout à la collection. Plus déterministe, sans
+    conséquence ici : le choix du compte se fait sur la possession du prêt.
+    """
     return [
-        (entry_id, data)
-        for entry_id, data in hass.data.get(DOMAIN, {}).items()
-        if isinstance(data, dict) and "client" in data
+        (entry.entry_id, data)
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+        and (data := getattr(entry, "runtime_data", None)) is not None
     ]
 
 
@@ -137,7 +155,7 @@ async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
 
     entry_id, entry_data = selected
     try:
-        await hass.async_add_executor_job(entry_data["client"].extend_loan, extend_url)
+        await hass.async_add_executor_job(entry_data.client.extend_loan, extend_url)
     except Exception as err:
         # Enveloppé : sans ça, l'erreur brute de requests remonte en « erreur
         # inconnue » avec une trace complète, et son message — qui contient
@@ -145,7 +163,7 @@ async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
         _LOGGER.error("Erreur lors de la prolongation: %s", err)
         raise HomeAssistantError(f"La prolongation a échoué : {err}") from err
 
-    coordinator = entry_data.get("coordinator")
+    coordinator = entry_data.coordinator
     if coordinator and coordinator.data:
         updated = _mark_loan_extended(coordinator.data, extend_url)
         if updated is not None:
@@ -283,18 +301,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: MediathequeConfigEntry) -> bool:
     """Set up Médiathèque de Veauche from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
-
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
-    client = MediathequeVeaucheClient(username, password)
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        "client": client,
-        "username": username,
-    }
+    entry.runtime_data = MediathequeRuntimeData(
+        client=MediathequeVeaucheClient(username, password),
+        username=username,
+    )
 
     # Register extend_loan service (once)
     if not hass.services.has_service(DOMAIN, SERVICE_EXTEND_LOAN):
@@ -364,15 +379,16 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-    return unload_ok
+async def async_unload_entry(hass: HomeAssistant, entry: MediathequeConfigEntry) -> bool:
+    """Unload a config entry.
+
+    Rien à nettoyer : Home Assistant supprime runtime_data lui-même quand le
+    déchargement réussit.
+    """
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_remove_entry(hass: HomeAssistant, entry: MediathequeConfigEntry) -> None:
     """Retire le service quand le dernier compte est supprimé.
 
     Au retrait de l'entrée et non à son déchargement : un rechargement passe
@@ -382,14 +398,12 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     Les rechargements sont fréquents : changement d'options, reconfiguration,
     ré-authentification.
     """
-    # async_unload_entry n'est pas appelé pour une entrée qui n'était pas
-    # chargée : ConfigEntry.async_unload sort avant pour tout état autre que
-    # LOADED. Supprimer un compte resté en erreur de configuration laissait
-    # donc son client dans hass.data jusqu'au redémarrage, ce qui maintenait
-    # _loan_entries non vide et empêchait aussi le retrait du service le jour
-    # où le dernier vrai compte serait supprimé. Idempotent avec le pop de
-    # async_unload_entry.
-    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    # Pas d'exclusion de l'entrée en cours de suppression : Home Assistant la
+    # décharge avant d'appeler ce handler, donc son état n'est plus LOADED et
+    # le filtre d'état de _loan_entries l'écarte déjà. Se fier à sa présence
+    # dans la collection serait de toute façon fragile : HA a inversé l'ordre
+    # en 2025.3 — auparavant l'entrée était encore listée ici, depuis elle en
+    # est déjà sortie.
     if not _loan_entries(hass) and hass.services.has_service(
         DOMAIN, SERVICE_EXTEND_LOAN
     ):
