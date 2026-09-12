@@ -8,6 +8,8 @@ import pytest
 from bs4 import BeautifulSoup
 
 from custom_components.mediatheque_veauche.scraper import (
+    DEFAULT_ACCOUNT_NAME,
+    DEFAULT_MEMBER_NAME,
     MediathequeVeaucheClient,
 )
 
@@ -104,11 +106,13 @@ class TestDaysUntil:
     def test_far_future(self):
         assert MediathequeVeaucheClient._days_until("2024-04-10") == 31
 
-    def test_invalid_date_returns_zero(self):
-        assert MediathequeVeaucheClient._days_until("invalid") == 0
+    def test_invalid_date_returns_none(self):
+        """0 signifierait « à rendre aujourd'hui » : une information fausse,
+        affichée en rouge. Une date illisible doit rester inconnue."""
+        assert MediathequeVeaucheClient._days_until("invalid") is None
 
-    def test_empty_string_returns_zero(self):
-        assert MediathequeVeaucheClient._days_until("") == 0
+    def test_empty_string_returns_none(self):
+        assert MediathequeVeaucheClient._days_until("") is None
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +198,46 @@ class TestParseLoanRow:
         assert loan["days_left"] == -3
         assert loan["can_extend"] is False
         assert loan["extended"] is True
+
+    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
+    def test_empty_emprunteur_is_not_attributed_to_account_holder(self, client):
+        """Une cellule emprunteur vide ne doit pas gonfler le compte du titulaire."""
+        row = _make_row(
+            "<td>Un livre</td>"
+            "<td>Veauche</td>"
+            "<td>   </td>"
+            '<td><span class="badge">20-03-2024</span></td>'
+            "<td></td>"
+        )
+        loan = client._parse_loan_row(row, has_emprunteur=True, default_emprunteur="Jean")
+        assert loan is not None
+        assert loan["emprunteur"] == DEFAULT_MEMBER_NAME
+
+    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
+    def test_extend_link_without_href_is_not_extendable(self, client):
+        """Un <a> sans href produisait une URL bidon avec le bouton actif."""
+        row = _make_row(
+            "<td>Un livre</td>"
+            "<td>Veauche</td>"
+            '<td><span class="badge">20-03-2024</span></td>'
+            "<td><a>Prolonger</a></td>"
+        )
+        loan = client._parse_loan_row(row, has_emprunteur=False, default_emprunteur="Test")
+        assert loan is not None
+        assert loan["can_extend"] is False
+        assert loan["extend_url"] is None
+
+    @patch("custom_components.mediatheque_veauche.scraper.date", FakeDate)
+    def test_unreadable_due_date_keeps_days_left_none(self, client):
+        row = _make_row(
+            "<td>Un livre</td>"
+            "<td>Veauche</td>"
+            '<td><span class="badge">pas une date</span></td>'
+            "<td></td>"
+        )
+        loan = client._parse_loan_row(row, has_emprunteur=False, default_emprunteur="Test")
+        assert loan is not None
+        assert loan["days_left"] is None
 
     def test_empty_row_returns_none(self, client):
         row = _make_row("")
@@ -301,7 +345,7 @@ class TestFetchBorrowings:
         client._borrowings_html = "<html><body></body></html>"
         data = client.fetch_borrowings()
 
-        assert data["compte"] == ""
+        assert data["compte"] == DEFAULT_ACCOUNT_NAME
         assert data["total"] == 0
         assert data["membres"] == {}
 
