@@ -204,6 +204,30 @@ reprendrait l'orpheline en premier, lui ferait capter l'identifiant, et
 abandonnerait la vivante. Le remède est plus probable que le mal — il se
 déclenche sans crash, la fenêtre ne s'ouvre qu'avec.
 
+## Où vit la logique testable
+
+`sensor.py` **n'est pas importable** sous les mocks de `tests/conftest.py` :
+`class _MediathequeBase(CoordinatorEntity, SensorEntity)` lève un conflit de
+métaclasse quand les deux bases sont des MagicMock. Tout ce qui y vit est donc
+hors de portée des tests, et la suite reste verte quoi qu'on y casse.
+
+C'est pourquoi la logique en est sortie :
+
+- `coordinator.py` — obtention et mise en cache des données
+  (`MediathequeDataSource.async_update`, `async_load_cache`,
+  `is_valid_payload`). C'était une closure de `async_setup_entry`.
+- `_async_extend_loan` dans `__init__.py`, sorti de sa closure pour la même
+  raison.
+
+`dates.py` est sorti pour un autre motif — le scraper n'a pas accès à `hass`,
+cf. la section sur le fuseau horaire — mais bénéficie de la même propriété.
+
+**Ne pas y remettre de logique**, et ne rien réintroduire dans une closure de
+`async_setup_entry` : ce qui y entre devient invisible aux tests sans que rien
+ne le signale. `sensor.py` ne doit garder que les classes d'entités et le
+câblage. Même contrainte pour `config_flow.py`, non importable parce qu'il
+dérive de `ConfigFlow`.
+
 ## Délais et fuseau horaire
 
 `days_left`, `due_this_week` et `overdue` ne sont **pas** produits par le
