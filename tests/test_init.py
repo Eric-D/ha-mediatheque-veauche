@@ -1,7 +1,17 @@
 """Tests pour __init__.py de l'intégration Médiathèque de Veauche."""
 from __future__ import annotations
 
+import custom_components.mediatheque_veauche as integration
 from custom_components.mediatheque_veauche import _mark_loan_extended
+
+
+def test_declares_config_entry_only_schema():
+    """hassfest n'émet qu'un avertissement, qui ne fait pas échouer la CI.
+
+    Sans CONFIG_SCHEMA, un « mediatheque_veauche: » dans configuration.yaml est
+    accepté en silence au lieu d'être signalé à l'utilisateur.
+    """
+    assert hasattr(integration, "CONFIG_SCHEMA")
 
 
 def _loan(url: str | None = None, **overrides):

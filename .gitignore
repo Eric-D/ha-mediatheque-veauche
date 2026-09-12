@@ -17,3 +17,6 @@ venv/
 
 # frontend (carte Lovelace)
 frontend/node_modules/
+
+# généré par scripts/manifest_requirements.py
+manifest-requirements.txt
