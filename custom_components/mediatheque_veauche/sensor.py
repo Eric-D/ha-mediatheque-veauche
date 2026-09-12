@@ -6,9 +6,8 @@ import logging
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
@@ -19,7 +18,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import dt as dt_util
 
 from .scraper import InvalidCredentialsError
-from .migration import build_unique_id, migrated_unique_id
+from .migration import build_unique_id
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
@@ -30,6 +29,24 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+
+
+async def _async_take_over_legacy_cache(hass: HomeAssistant, username: str) -> dict:
+    """Récupère le cache de l'ancien nom de fichier, puis le supprime.
+
+    Se tromper ici ne coûte qu'un cycle de rafraîchissement, jamais de
+    l'historique : à défaut, le coordinator repart simplement à vide.
+    """
+    legacy = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
+    try:
+        data = await legacy.async_load() or {}
+        if data:
+            _LOGGER.info("Reprise du cache disque hérité de %s", username)
+            await legacy.async_remove()
+        return data
+    except Exception:  # noqa: BLE001 - jamais bloquant pour le setup
+        _LOGGER.exception("Reprise du cache hérité impossible")
+        return {}
 
 
 def _is_number(value: object) -> bool:
@@ -80,13 +97,13 @@ async def async_setup_entry(
 
     client = hass.data[DOMAIN][entry.entry_id]["client"]
 
-    # Avant toute création d'entité : les identifiants uniques dérivaient du
-    # login, donc en changer aurait créé cinq entités neuves et orphelinné les
-    # anciennes. Rejouable à chaque démarrage, la migration étant idempotente.
-    await _async_migrate_unique_ids(hass, entry)
-
-    store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{username}_cache")
+    # Indexé sur l'entry_id et non sur le login : sinon changer de login
+    # repartait d'un cache vide, donc capteurs « unknown » jusqu'au premier
+    # fetch réussi — et « unavailable » si celui-ci échouait.
+    store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_cache")
     cached = await store.async_load() or {}
+    if not cached:
+        cached = await _async_take_over_legacy_cache(hass, username)
     if not isinstance(cached, dict):
         _LOGGER.warning("Cache disque corrompu (conteneur %s), ignoré", type(cached).__name__)
         cached = {}
@@ -182,24 +199,6 @@ async def async_setup_entry(
     entry.async_create_background_task(
         hass, coordinator.async_request_refresh(), "mediatheque_first_refresh"
     )
-
-
-async def _async_migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Réécrit les identifiants uniques hérités du login vers l'entry_id."""
-
-    @callback
-    def _migrate(registry_entry: er.RegistryEntry) -> dict | None:
-        new_unique_id = migrated_unique_id(entry.entry_id, registry_entry.unique_id)
-        if new_unique_id is None:
-            return None
-        _LOGGER.info(
-            "Migration de l'identifiant unique %s vers %s",
-            registry_entry.unique_id,
-            new_unique_id,
-        )
-        return {"new_unique_id": new_unique_id}
-
-    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
 
 
 class _MediathequeBase(CoordinatorEntity, SensorEntity):

@@ -103,6 +103,20 @@ if "homeassistant" in MOCKED_ROOTS:
     class ConfigEntryAuthFailed(HomeAssistantError):
         """Équivalent local de ConfigEntryAuthFailed."""
 
+    import homeassistant.core as _ha_core
+
+    def callback(func):
+        """Décorateur identité, comme celui de Home Assistant.
+
+        Un MagicMock remplace la fonction décorée au lieu de la renvoyer : tout
+        code marqué @callback devenait alors intestable, et le harnais rendait
+        du vert sur du code qui ne s'exécutait jamais.
+        """
+        setattr(func, "_hass_callback", True)
+        return func
+
+    _ha_core.callback = callback
+
     _ha_exceptions.HomeAssistantError = HomeAssistantError
     _ha_exceptions.ServiceValidationError = ServiceValidationError
     _ha_exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed

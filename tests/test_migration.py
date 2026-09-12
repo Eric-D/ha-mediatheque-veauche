@@ -1,10 +1,9 @@
 """Migration des identifiants uniques d'entités.
 
-Ces identifiants dérivaient du login. En changer — carte renouvelée, nouveau
-numéro — créait cinq entités neuves et orphelinait les anciennes : carte du
-tableau de bord cassée, historique perdu, automatisations muettes. La migration
-est donc ce qui rend le changement d'identifiant utilisable, et elle ne
-s'exécute qu'une fois chez chaque utilisateur : s'y tromper est sans retour.
+Opération irréversible qui ne s'exécute qu'une fois chez chaque utilisateur :
+s'y tromper perd son historique. Les tests couvrent donc la fonction pure ET le
+câblage, le projet ayant déjà appris ailleurs que la première sans le second
+laisse passer les régressions qui comptent.
 """
 from __future__ import annotations
 
@@ -13,6 +12,7 @@ import re
 
 import pytest
 
+import custom_components.mediatheque_veauche as integration
 from custom_components.mediatheque_veauche.const import DOMAIN
 from custom_components.mediatheque_veauche.migration import (
     ENTITY_SUFFIXES,
@@ -21,62 +21,171 @@ from custom_components.mediatheque_veauche.migration import (
 )
 
 ENTRY_ID = "01JABCDEF0123456789"
-OLD_USERNAME = "123456"
+USERNAME = "123456"
+OLD_USERNAME = "999999"
+
+# Les cinq formats qui ont réellement existé, figés en dur. ENTITY_SUFFIXES ne
+# doit jamais rétrécir : un utilisateur pas encore migré a encore des entités
+# sous ces noms, et en retirer un les condamnerait.
+HISTORICAL_SUFFIXES = {"total", "due_week", "overdue", "subscription", "last_update"}
 
 
 class TestMigratedUniqueId:
-    @pytest.mark.parametrize("suffix", ENTITY_SUFFIXES)
-    def test_every_historical_suffix_is_migrated(self, suffix):
-        old = f"{DOMAIN}_{OLD_USERNAME}_{suffix}"
-        assert migrated_unique_id(ENTRY_ID, old) == build_unique_id(ENTRY_ID, suffix)
+    @pytest.mark.parametrize("suffix", sorted(HISTORICAL_SUFFIXES))
+    def test_current_login_is_migrated(self, suffix):
+        old = f"{DOMAIN}_{USERNAME}_{suffix}"
+        assert migrated_unique_id(ENTRY_ID, USERNAME, old) == build_unique_id(
+            ENTRY_ID, suffix
+        )
 
-    def test_last_update_is_not_confused_with_a_shorter_suffix(self):
-        """Les suffixes sont essayés du plus long au plus court."""
-        old = f"{DOMAIN}_{OLD_USERNAME}_last_update"
-        assert migrated_unique_id(ENTRY_ID, old).endswith("_last_update")
+    def test_entities_of_a_previous_login_are_left_alone(self):
+        """Le cœur du contrat.
+
+        Un utilisateur ayant déjà changé de login a deux jeux d'entités dans la
+        même entrée. Migrer celles de l'ancien login leur ferait capter le
+        nouvel identifiant — elles sont enregistrées en premier — au détriment
+        de celles qui portent l'historique et l'entity_id du tableau de bord.
+        """
+        orphan = f"{DOMAIN}_{OLD_USERNAME}_total"
+        assert migrated_unique_id(ENTRY_ID, USERNAME, orphan) is None
 
     def test_already_migrated_is_left_alone(self):
-        """Idempotence : la migration est rejouée à chaque démarrage."""
         already = build_unique_id(ENTRY_ID, "total")
-        assert migrated_unique_id(ENTRY_ID, already) is None
+        assert migrated_unique_id(ENTRY_ID, USERNAME, already) is None
 
     def test_migration_is_stable_when_replayed(self):
-        old = f"{DOMAIN}_{OLD_USERNAME}_total"
-        once = migrated_unique_id(ENTRY_ID, old)
-        assert migrated_unique_id(ENTRY_ID, once) is None
+        old = f"{DOMAIN}_{USERNAME}_total"
+        once = migrated_unique_id(ENTRY_ID, USERNAME, old)
+        assert migrated_unique_id(ENTRY_ID, USERNAME, once) is None
 
     def test_foreign_unique_id_is_ignored(self):
-        """Une entité d'une autre intégration ne doit jamais être touchée."""
-        assert migrated_unique_id(ENTRY_ID, "autre_integration_123_total") is None
+        assert migrated_unique_id(ENTRY_ID, USERNAME, "autre_integration_x_total") is None
 
     def test_unknown_suffix_is_ignored(self):
-        assert migrated_unique_id(ENTRY_ID, f"{DOMAIN}_{OLD_USERNAME}_inconnu") is None
+        assert migrated_unique_id(ENTRY_ID, USERNAME, f"{DOMAIN}_{USERNAME}_x") is None
 
-    def test_username_containing_a_suffix(self):
-        """Un identifiant qui contient lui-même un suffixe reste migré une fois."""
-        old = f"{DOMAIN}_total42_overdue"
-        assert migrated_unique_id(ENTRY_ID, old) == build_unique_id(ENTRY_ID, "overdue")
+    def test_partial_match_is_not_enough(self):
+        """La correspondance est exacte, pas un endswith."""
+        assert migrated_unique_id(ENTRY_ID, USERNAME, f"prefixe_{DOMAIN}_{USERNAME}_total") is None
 
-    def test_entry_id_prefix_wins_over_suffix_match(self):
-        """Une entité déjà migrée se termine aussi par un suffixe connu."""
-        assert migrated_unique_id(ENTRY_ID, f"{ENTRY_ID}_overdue") is None
+    def test_suffix_list_never_shrinks(self):
+        assert HISTORICAL_SUFFIXES <= set(ENTITY_SUFFIXES)
+
+
+class _RegistryEntry:
+    def __init__(self, unique_id, entity_id, domain="sensor"):
+        self.unique_id = unique_id
+        self.entity_id = entity_id
+        self.domain = domain
+
+
+class _FakeRegistry:
+    """Reproduit le comportement réel de Home Assistant, refus de doublon compris."""
+
+    def __init__(self, entries):
+        self.entries = list(entries)
+
+    def async_get_entity_id(self, domain, platform, unique_id):
+        for entry in self.entries:
+            if entry.domain == domain and entry.unique_id == unique_id:
+                return entry.entity_id
+        return None
+
+    def apply(self, callback):
+        """Équivalent d'async_migrate_entries, ValueError amont incluse."""
+        for entry in list(self.entries):
+            updates = callback(entry)
+            if updates is None:
+                continue
+            new_unique_id = updates["new_unique_id"]
+            conflict = self.async_get_entity_id(entry.domain, DOMAIN, new_unique_id)
+            if conflict:
+                raise ValueError(
+                    f"Unique id '{new_unique_id}' is already in use by '{conflict}'"
+                )
+            entry.unique_id = new_unique_id
+
+
+class _Entry:
+    def __init__(self, entry_id, username):
+        self.entry_id = entry_id
+        self.data = {"username": username}
+
+
+class TestMigrationWiring:
+    @staticmethod
+    def _run(hass, entry, registry, monkeypatch):
+        monkeypatch.setattr(integration.er, "async_get", lambda _hass: registry)
+
+        async def _migrate_entries(_hass, _entry_id, callback):
+            registry.apply(callback)
+
+        monkeypatch.setattr(integration.er, "async_migrate_entries", _migrate_entries)
+
+        import asyncio
+
+        asyncio.run(integration._async_migrate_unique_ids(hass, entry))
+
+    def test_migrates_the_current_login(self, monkeypatch):
+        registry = _FakeRegistry(
+            [_RegistryEntry(f"{DOMAIN}_{USERNAME}_total", "sensor.emprunts_mediatheque")]
+        )
+        self._run(None, _Entry(ENTRY_ID, USERNAME), registry, monkeypatch)
+        assert registry.entries[0].unique_id == build_unique_id(ENTRY_ID, "total")
+
+    def test_orphan_of_a_previous_login_does_not_steal_the_identifier(self, monkeypatch):
+        """Le scénario qui coûte l'historique.
+
+        L'orpheline est enregistrée en premier. Une correspondance par suffixe
+        la migrerait d'abord, lui ferait capter le nouvel identifiant, puis
+        lèverait une ValueError sur la vivante — laissant la plateforme morte.
+        """
+        orphan = _RegistryEntry(
+            f"{DOMAIN}_{OLD_USERNAME}_total", "sensor.emprunts_mediatheque"
+        )
+        live = _RegistryEntry(
+            f"{DOMAIN}_{USERNAME}_total", "sensor.emprunts_mediatheque_2"
+        )
+        registry = _FakeRegistry([orphan, live])
+
+        self._run(None, _Entry(ENTRY_ID, USERNAME), registry, monkeypatch)
+
+        assert orphan.unique_id == f"{DOMAIN}_{OLD_USERNAME}_total"
+        assert live.unique_id == build_unique_id(ENTRY_ID, "total")
+
+    def test_collision_is_survivable(self, monkeypatch):
+        """Une migration qui échoue doit laisser ses capteurs à l'utilisateur.
+
+        Home Assistant lève si l'identifiant est déjà pris, et
+        async_migrate_entries n'attrape rien : sans garde, la plateforme sensor
+        mourrait à chaque démarrage.
+        """
+        squatter = _RegistryEntry(build_unique_id(ENTRY_ID, "total"), "sensor.squatteur")
+        live = _RegistryEntry(f"{DOMAIN}_{USERNAME}_total", "sensor.emprunts_mediatheque")
+        registry = _FakeRegistry([squatter, live])
+
+        self._run(None, _Entry(ENTRY_ID, USERNAME), registry, monkeypatch)
+
+        assert live.unique_id == f"{DOMAIN}_{USERNAME}_total"
+
+    def test_empty_registry(self, monkeypatch):
+        registry = _FakeRegistry([])
+        self._run(None, _Entry(ENTRY_ID, USERNAME), registry, monkeypatch)
+        assert registry.entries == []
 
 
 class TestSuffixesMatchTheSensors:
-    """sensor.py n'est pas importable sous les mocks : on lit la source.
+    """sensor.py n'est pas importable sous les mocks : on lit la source."""
 
-    Un suffixe utilisé par un capteur mais absent d'ENTITY_SUFFIXES ne serait
-    jamais migré, et l'entité correspondante serait silencieusement remplacée
-    par une neuve au premier changement d'identifiant.
-    """
-
-    def test_no_sensor_suffix_is_missing(self):
+    def test_every_sensor_suffix_is_migrable(self):
         source = (
             pathlib.Path(__file__).resolve().parent.parent
             / "custom_components/mediatheque_veauche/sensor.py"
         ).read_text("utf-8")
-        used = set(re.findall(r'build_unique_id\(entry\.entry_id, "([^"]+)"\)', source))
-        assert used, "aucun appel à build_unique_id détecté : la regex ne matche plus"
-        assert used <= set(ENTITY_SUFFIXES), (
-            f"suffixes non migrables : {sorted(used - set(ENTITY_SUFFIXES))}"
+        used = re.findall(r'build_unique_id\(entry\.entry_id, "([^"]+)"\)', source)
+        assert len(used) == 5, (
+            f"{len(used)} appels littéraux à build_unique_id au lieu de 5 : "
+            "un capteur a été ajouté, retiré, ou son suffixe passé par une "
+            "constante que cette analyse ne voit pas"
         )
+        assert set(used) <= set(ENTITY_SUFFIXES)

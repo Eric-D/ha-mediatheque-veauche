@@ -8,14 +8,15 @@ from __future__ import annotations
 
 from .const import DOMAIN
 
-# Suffixes historiques, dans l'ordre du plus long au plus court pour qu'un
-# suffixe qui en contient un autre soit reconnu en premier.
+# Formats historiques, tous dérivés du login. Cette liste ne doit jamais
+# rétrécir : un utilisateur qui n'a pas encore démarré depuis la mise à jour a
+# encore des entités sous ces noms, et en retirer un les condamnerait.
 ENTITY_SUFFIXES = (
-    "last_update",
-    "subscription",
+    "total",
     "due_week",
     "overdue",
-    "total",
+    "subscription",
+    "last_update",
 )
 
 
@@ -30,17 +31,24 @@ def build_unique_id(entry_id: str, suffix: str) -> str:
     return f"{entry_id}_{suffix}"
 
 
-def migrated_unique_id(entry_id: str, old_unique_id: str) -> str | None:
-    """Nouvel identifiant pour une entité au format historique, sinon None.
+def migrated_unique_id(
+    entry_id: str, username: str, old_unique_id: str
+) -> str | None:
+    """Nouvel identifiant pour une entité du login courant, sinon None.
 
-    Idempotent : une entité déjà migrée renvoie None, ce qui permet de rejouer
-    la migration à chaque démarrage sans état à conserver.
+    La correspondance est exacte sur le login courant, et non heuristique sur
+    le suffixe. Un utilisateur ayant déjà changé de login avant cette mise à
+    jour a deux jeux d'entités rattachés à la même entrée : celles de l'ancien
+    login, orphelines, et celles du login courant, qui portent l'historique et
+    l'entity_id du tableau de bord. Une correspondance par suffixe migrerait
+    les deux — l'orpheline d'abord, puisqu'elle est enregistrée en premier —
+    et lui ferait perdre exactement ce que la migration prétend sauver.
+
+    Idempotent : une entité déjà migrée ne correspond à aucun format
+    historique, ce qui permet de rejouer la migration à chaque démarrage sans
+    état à conserver.
     """
-    if old_unique_id.startswith(f"{entry_id}_"):
-        return None
-    if not old_unique_id.startswith(f"{DOMAIN}_"):
-        return None
     for suffix in ENTITY_SUFFIXES:
-        if old_unique_id.endswith(f"_{suffix}"):
+        if old_unique_id == f"{DOMAIN}_{username}_{suffix}":
             return build_unique_id(entry_id, suffix)
     return None

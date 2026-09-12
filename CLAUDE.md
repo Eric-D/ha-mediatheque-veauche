@@ -156,13 +156,23 @@ septembre 2026 — signifie qu'en changer crée des entités neuves et orpheline
 anciennes : tableau de bord cassé, historique perdu, automatisations muettes.
 
 `migration.py` réécrit les identifiants au format historique et tourne à chaque
-démarrage, l'opération étant idempotente. **Ne pas la retirer** : elle ne
-s'exécute qu'une fois chez chaque utilisateur, et un utilisateur qui n'aurait
-pas encore démarré depuis la mise à jour perdrait son historique.
+démarrage, l'opération étant idempotente. **Ne pas la retirer**, et **ne jamais
+retirer d'entrée d'`ENTITY_SUFFIXES`** : elle ne s'exécute qu'une fois chez
+chaque utilisateur, et un utilisateur qui n'a pas encore démarré depuis la mise
+à jour a encore des entités sous ces noms.
 
-Les suffixes sont essayés du plus long au plus court — `last_update` avant
-`update` — et `tests/test_migration.py` vérifie que tout suffixe utilisé par un
-capteur figure bien dans `ENTITY_SUFFIXES`.
+La correspondance est **exacte sur le login courant**, jamais heuristique sur le
+suffixe. Un utilisateur ayant déjà changé de login a deux jeux d'entités dans la
+même entrée : les orphelines de l'ancien login, enregistrées en premier, et
+celles du login courant qui portent l'historique. Une correspondance par suffixe
+migrerait l'orpheline d'abord, lui ferait capter le nouvel identifiant, puis
+lèverait sur la vivante — laissant la plateforme sensor morte à chaque
+démarrage. Une garde de collision couvre le cas résiduel : une migration qui
+échoue proprement laisse ses capteurs à l'utilisateur.
+
+La migration tourne dans `__init__.async_setup_entry`, **pas** dans la
+plateforme : une exception y serait avalée par `entity_platform`, laissant
+l'entrée affichée « chargée » avec zéro capteur et sans réessai.
 
 ## Méthode de diagnostic
 

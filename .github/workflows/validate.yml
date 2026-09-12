@@ -90,10 +90,18 @@ jobs:
         run: |
           python -c "
           import importlib
-          for suffix in ('', '.scraper', '.sensor', '.config_flow'):
+          for suffix in ('', '.scraper', '.sensor', '.config_flow', '.migration'):
               name = 'custom_components.mediatheque_veauche' + suffix
               importlib.import_module(name)
               print('ok', name)
+          # La migration passe new_unique_id à async_update_entity : une faute
+          # de frappe ou un renommage amont produirait un TypeError avalé par
+          # entity_platform, donc zéro capteur en silence.
+          import inspect
+          from homeassistant.helpers.entity_registry import EntityRegistry
+          params = inspect.signature(EntityRegistry.async_update_entity).parameters
+          assert 'new_unique_id' in params, 'async_update_entity n\'accepte plus new_unique_id'
+          print('ok signature async_update_entity')
           "
 
   validate-frontend:
