@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import custom_components.mediatheque_veauche as integration
-from custom_components.mediatheque_veauche import _mark_loan_extended
+from custom_components.mediatheque_veauche import (
+    _loan_entries,
+    _mark_loan_extended,
+    _owns_loan,
+    _select_entry,
+)
 
 
 def test_declares_config_entry_only_schema():
@@ -140,3 +145,90 @@ class TestMarkLoanExtended:
         # copy.copy() passerait l'égalité ci-dessus tout en partageant les
         # sous-dicts — exactement le partage de références qu'on interdit.
         assert updated["subscription"] is not data["subscription"]
+
+
+class _Coordinator:
+    def __init__(self, data):
+        self.data = data
+
+
+def _account(*urls, coordinator=True):
+    """Entrée de configuration factice détenant les prêts donnés."""
+    data = {
+        "membres": {"Jean": [{"titre": f"Livre {u}", "extend_url": u} for u in urls]}
+    }
+    entry = {"client": object(), "username": "u"}
+    if coordinator:
+        entry["coordinator"] = _Coordinator(data)
+    return entry
+
+
+class TestOwnsLoan:
+    def test_finds_the_loan(self):
+        assert _owns_loan(_account("u1", "u2"), "u2")
+
+    def test_absent_loan(self):
+        assert not _owns_loan(_account("u1"), "u2")
+
+    def test_no_coordinator_yet(self):
+        """Démarrage à froid : le coordinator n'a pas encore de données."""
+        assert not _owns_loan(_account("u1", coordinator=False), "u1")
+
+    def test_membres_not_a_dict(self):
+        assert not _owns_loan({"coordinator": _Coordinator({"membres": None})}, "u1")
+
+    def test_loan_not_a_dict(self):
+        coordinator = _Coordinator({"membres": {"Jean": ["pas un dict"]}})
+        assert not _owns_loan({"coordinator": coordinator}, "u1")
+
+
+class TestSelectEntry:
+    """Se tromper de compte est silencieux et coûteux.
+
+    La session du mauvais compte ne possède pas le prêt : le portail répond une
+    page d'erreur ou une redirection, et rien ne le signale. Mieux vaut ne rien
+    faire que deviner.
+    """
+
+    def test_routes_to_the_owning_account(self):
+        entries = [("a", _account("u1")), ("b", _account("u2"))]
+        assert _select_entry(entries, "u2")[0] == "b"
+
+    def test_does_not_guess_between_several_accounts(self):
+        entries = [("a", _account("u1")), ("b", _account("u2"))]
+        assert _select_entry(entries, "inconnue") is None
+
+    def test_single_account_is_unambiguous(self):
+        """Un seul compte : on tente même sans données, cas du démarrage à froid."""
+        entries = [("a", _account("u1", coordinator=False))]
+        assert _select_entry(entries, "u1")[0] == "a"
+
+    def test_no_account_at_all(self):
+        assert _select_entry([], "u1") is None
+
+    def test_ownership_wins_over_insertion_order(self):
+        """Le bug d'origine prenait la première entrée quoi qu'il arrive."""
+        entries = [("premier", _account("autre")), ("second", _account("cible"))]
+        assert _select_entry(entries, "cible")[0] == "second"
+
+
+class TestLoanEntries:
+    def test_ignores_non_entry_keys(self):
+        """hass.data[DOMAIN] ne contient pas que des entrées de configuration."""
+
+        class _Hass:
+            data = {
+                "mediatheque_veauche": {
+                    "abc": {"client": object(), "username": "u"},
+                    "sans_client": {"username": "u"},
+                    "pas_un_dict": "valeur",
+                }
+            }
+
+        assert [entry_id for entry_id, _ in _loan_entries(_Hass())] == ["abc"]
+
+    def test_missing_domain_key(self):
+        class _Hass:
+            data: dict = {}
+
+        assert _loan_entries(_Hass()) == []

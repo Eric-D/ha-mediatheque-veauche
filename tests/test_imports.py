@@ -35,6 +35,7 @@ EXPECTED = {
     "homeassistant.config_entries",
     "homeassistant.const",
     "homeassistant.core",
+    "homeassistant.exceptions",
     "homeassistant.helpers",
     "homeassistant.helpers.config_validation",
     "homeassistant.helpers.start",
