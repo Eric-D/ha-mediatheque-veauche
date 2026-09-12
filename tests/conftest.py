@@ -112,7 +112,7 @@ if "homeassistant" in MOCKED_ROOTS:
         code marqué @callback devenait alors intestable, et le harnais rendait
         du vert sur du code qui ne s'exécutait jamais.
         """
-        setattr(func, "_hass_callback", True)
+        func._hass_callback = True
         return func
 
     _ha_core.callback = callback

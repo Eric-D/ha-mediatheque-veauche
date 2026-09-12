@@ -1,10 +1,10 @@
 """Tests pour __init__.py de l'intégration Médiathèque de Veauche."""
 from __future__ import annotations
 
-import custom_components.mediatheque_veauche as integration
 import pytest
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
+import custom_components.mediatheque_veauche as integration
 from custom_components.mediatheque_veauche import (
     _async_extend_loan,
     _loan_entries,
@@ -245,26 +245,31 @@ class TestSelectEntry:
         assert _select_entry(entries, "cible")[0] == "second"
 
 
+class _Hass:
+    def __init__(self, entries):
+        self.data = {"mediatheque_veauche": dict(entries)}
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
 class TestLoanEntries:
     def test_ignores_non_entry_keys(self):
         """hass.data[DOMAIN] ne contient pas que des entrées de configuration."""
 
-        class _Hass:
-            data = {
-                "mediatheque_veauche": {
-                    "abc": {"client": object(), "username": "u"},
-                    "sans_client": {"username": "u"},
-                    "pas_un_dict": "valeur",
-                }
+        hass = _Hass(
+            {
+                "abc": {"client": object(), "username": "u"},
+                "sans_client": {"username": "u"},
+                "pas_un_dict": "valeur",
             }
-
-        assert [entry_id for entry_id, _ in _loan_entries(_Hass())] == ["abc"]
+        )
+        assert [entry_id for entry_id, _ in _loan_entries(hass)] == ["abc"]
 
     def test_missing_domain_key(self):
-        class _Hass:
-            data: dict = {}
-
-        assert _loan_entries(_Hass()) == []
+        hass = _Hass({})
+        hass.data = {}
+        assert _loan_entries(hass) == []
 
 
 class _Client:
@@ -288,14 +293,6 @@ class _RecordingCoordinator(_Coordinator):
 
     def async_set_updated_data(self, data):
         self.updates.append(data)
-
-
-class _Hass:
-    def __init__(self, entries):
-        self.data = {"mediatheque_veauche": dict(entries)}
-
-    async def async_add_executor_job(self, func, *args):
-        return func(*args)
 
 
 def _wired_account(name, *urls, fails=False):

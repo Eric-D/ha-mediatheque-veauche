@@ -9,3 +9,8 @@
 # les tests ne portant que sur le scraping et les fonctions pures. Le job
 # « import-check » de la CI l'installe, lui, pour de vrai.
 pytest>=8.0.0
+# Épinglé, contrairement à Home Assistant dans le job import-check : là, un
+# échec signifie que l'amont a cassé l'intégration, c'est le signal recherché.
+# Ici il signifierait que l'amont a une nouvelle opinion sur le style — du bruit
+# qui, répété sur l'exécution quotidienne, apprend à ignorer les échecs.
+ruff~=0.16.0

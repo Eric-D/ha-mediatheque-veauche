@@ -9,13 +9,12 @@ import requests
 from bs4 import BeautifulSoup
 
 from custom_components.mediatheque_veauche.scraper import (
-    AuthenticationError,
-    InvalidCredentialsError,
     DEFAULT_ACCOUNT_NAME,
     DEFAULT_MEMBER_NAME,
+    AuthenticationError,
+    InvalidCredentialsError,
     MediathequeVeaucheClient,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixture : client sans session (pour tester les méthodes statiques / internes)
@@ -647,9 +646,12 @@ HTML_MIXED_DATES = """
 <html><body>
 <div id="profile_borrowed"><h2>DUPONT Jean</h2></div>
 <div id="user_borrow"><table><tbody>
-  <tr><td>En retard</td><td>Veauche</td><td><span class="badge">07-03-2024</span></td><td></td></tr>
-  <tr><td>Cette semaine</td><td>Veauche</td><td><span class="badge">15-03-2024</span></td><td></td></tr>
-  <tr><td>Date illisible</td><td>Veauche</td><td><span class="badge">jamais</span></td><td></td></tr>
+  <tr><td>En retard</td><td>Veauche</td>
+      <td><span class="badge">07-03-2024</span></td><td></td></tr>
+  <tr><td>Cette semaine</td><td>Veauche</td>
+      <td><span class="badge">15-03-2024</span></td><td></td></tr>
+  <tr><td>Date illisible</td><td>Veauche</td>
+      <td><span class="badge">jamais</span></td><td></td></tr>
 </tbody></table></div>
 </body></html>
 """

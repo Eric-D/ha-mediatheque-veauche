@@ -222,6 +222,26 @@ main. `tests/test_manifest.py` vérifie qu'ils restent synchronisés — une
 substitution qui ne matche plus échoue silencieusement, et sur `CARD_VERSION`
 ça ferait resservir un bundle périmé derrière un cache-buster frais.
 
+## Linters
+
+`ruff check .` — configuré dans `pyproject.toml`,
+exécuté en CI. Longueur de ligne à 100 et non aux 88 de Home Assistant core :
+le code a été écrit sans linter, aucune ligne ne dépasse cette valeur, et
+reformater une trentaine de lignes dans la PR qui introduit l'outil aurait noyé
+les vraies corrections.
+
+`npm run lint` côté TypeScript — **oxlint**, pas ESLint. `typescript-eslint`
+déclare une plage de pairs `>=4.8.4 <6.1.0` et ne supporte donc pas TypeScript 7,
+adopté ici : l'installer demanderait `--force`, donc un outillage dont on ne
+pourrait pas croire les résultats sur une syntaxe qu'il ne parse pas. oxlint a
+son propre parser et aucune dépendance de pair sur TypeScript.
+
+Il tourne sur son ruleset `correctness` par défaut, zéro constat. Ne pas élargir
+à `suspicious` ou `pedantic` sans réfléchir : `no-underscore-dangle` y produit
+une trentaine de faux positifs sur la convention `_private` des cartes Lovelace,
+et `unicorn(no-array-sort)` en signale trois autres sur des tris qui portent
+déjà sur des copies.
+
 ## Exécuter les tests
 
 ```
@@ -229,7 +249,22 @@ pip install -r requirements_test.txt
 python scripts/manifest_requirements.py
 pip install -r manifest-requirements.txt
 pytest
+ruff check .
+(cd frontend && npm ci && npm run typecheck && npm run lint && npm run build)
+git diff --exit-code --stat custom_components/mediatheque_veauche/www/mediatheque-card.js
 ```
+
+Ce bloc reproduit les vérifications de la CI, et `tests/test_documentation.py`
+compare les deux pour qu'ils ne divergent pas — découvrir l'écart en poussant
+est le genre de friction que ce dépôt s'efforce de supprimer partout ailleurs.
+
+Le sous-shell est volontaire : sans lui, un build en échec laisserait le shell
+dans `frontend/`, et la ligne suivante échouerait à son tour sur un chemin
+introuvable — en masquant le vrai problème.
+
+Cette dernière ligne est celle qu'on oublie le plus souvent : le bundle commité
+doit correspondre au build, et la CI échoue sinon. `--exit-code --stat` plutôt
+que `--quiet`, qui sort en 1 sans rien afficher.
 
 Les deux commandes du milieu sont nécessaires : les dépendances runtime
 (`beautifulsoup4`, `requests`) ne sont pas recopiées dans

@@ -9,7 +9,12 @@ import requests
 from bs4 import BeautifulSoup
 
 from .const import (
-    BASE_URL, BOOK_URL, BORROWINGS_URL, INFOS_USER_URL, LOGIN_URL, PROFILE_EDIT_URL,
+    BASE_URL,
+    BOOK_URL,
+    BORROWINGS_URL,
+    INFOS_USER_URL,
+    LOGIN_URL,
+    PROFILE_EDIT_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)

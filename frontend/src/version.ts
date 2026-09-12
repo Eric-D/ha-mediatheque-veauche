@@ -1,7 +1,8 @@
 export const MEDIATHEQUE_CARD_VERSION = '3.5.0';
 
 export function logBanner(): void {
-  // eslint-disable-next-line no-console
+  // console volontaire : c'est la convention des cartes Lovelace, et le bandeau
+  // de version est le premier élément de diagnostic dans ce projet.
   console.info(
     `%c MEDIATHEQUE-CARD %c ${MEDIATHEQUE_CARD_VERSION} IS INSTALLED `,
     'color: white; background: #2e7d32; font-weight: bold;',
@@ -22,6 +23,6 @@ export function mcLog(
     'color: white; background: #2e7d32; font-weight: bold;',
     'color: #2e7d32; font-weight: bold;',
   ];
-  // eslint-disable-next-line no-console
+  // console volontaire : voir logBanner.
   console[level](prefix + ' ' + msg, ...styles, ...args);
 }

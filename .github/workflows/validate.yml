@@ -62,6 +62,13 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+      # Après les tests : un simple dépassement de ligne ne doit pas masquer
+      # l'état réel du code et coûter un aller-retour.
+      # « . » plutôt qu'une liste de chemins, qui laisserait passer un futur
+      # fichier à la racine.
+      - name: Lint
+        run: ruff check . --output-format=github
+
   # Les tests tournent avec un Home Assistant simulé : ils ne peuvent pas dire
   # qu'un module importé existe réellement. Ce job le vérifie, avec le vrai
   # paquet installé.
@@ -124,6 +131,10 @@ jobs:
       - name: Typecheck
         working-directory: frontend
         run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build
         working-directory: frontend

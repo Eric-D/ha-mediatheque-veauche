@@ -1,10 +1,10 @@
 """Sensor platform for Médiathèque de Veauche."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
+from datetime import date, datetime, timedelta
 
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -17,14 +17,14 @@ from homeassistant.helpers.update_coordinator import (
 )
 from homeassistant.util import dt as dt_util
 
-from .scraper import InvalidCredentialsError
-from .migration import build_unique_id
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
+from .migration import build_unique_id
+from .scraper import InvalidCredentialsError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def _async_take_over_legacy_cache(hass: HomeAssistant, username: str) -> d
             _LOGGER.info("Reprise du cache disque hérité de %s", username)
             await legacy.async_remove()
         return data
-    except Exception:  # noqa: BLE001 - jamais bloquant pour le setup
+    except Exception:
         _LOGGER.exception("Reprise du cache hérité impossible")
         return {}
 
@@ -78,9 +78,7 @@ def _is_valid_payload(data: object) -> bool:
             if not _is_number(loan.get("days_left")):
                 return False
     subscription = data.get("subscription")
-    if subscription is not None and not isinstance(subscription, dict):
-        return False
-    return True
+    return subscription is None or isinstance(subscription, dict)
 
 
 async def async_setup_entry(
@@ -292,11 +290,11 @@ class MediathequeEmpruntsSemaine(_MediathequeBase):
             return {}
         all_loans = self._all_loans(self.coordinator.data)
         due_loans = [
-            l
-            for l in all_loans
-            if l.get("days_left") is not None and 0 <= l["days_left"] <= 7
+            loan
+            for loan in all_loans
+            if loan.get("days_left") is not None and 0 <= loan["days_left"] <= 7
         ]
-        due_loans.sort(key=lambda l: l["days_left"])
+        due_loans.sort(key=lambda loan: loan["days_left"])
         return {"livres": due_loans, **self._freshness()}
 
 
@@ -324,9 +322,11 @@ class MediathequeEmpruntsRetard(_MediathequeBase):
             return {}
         all_loans = self._all_loans(self.coordinator.data)
         overdue_loans = [
-            l for l in all_loans if l.get("days_left") is not None and l["days_left"] < 0
+            loan
+            for loan in all_loans
+            if loan.get("days_left") is not None and loan["days_left"] < 0
         ]
-        overdue_loans.sort(key=lambda l: l["days_left"])
+        overdue_loans.sort(key=lambda loan: loan["days_left"])
         return {"livres": overdue_loans, **self._freshness()}
 
 

@@ -5,15 +5,14 @@ import copy
 import logging
 from pathlib import Path
 
+import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.start import async_at_started
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
@@ -222,7 +221,10 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> bool:
         )
         _LOGGER.info("Ressource Lovelace enregistrée : %s", CARD_RESOURCE_URL)
         return True
-    except Exception:  # noqa: BLE001 - ne doit jamais empêcher le setup
+    except Exception:
+        # Volontairement large : l'enregistrement de la ressource ne doit jamais
+        # empêcher le setup de l'intégration. À défaut, la carte reste injectée
+        # par add_extra_js_url.
         _LOGGER.exception("Enregistrement de la ressource Lovelace impossible")
         return False
 

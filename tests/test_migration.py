@@ -70,7 +70,7 @@ class TestMigratedUniqueId:
         assert migrated_unique_id(ENTRY_ID, USERNAME, f"prefixe_{DOMAIN}_{USERNAME}_total") is None
 
     def test_suffix_list_never_shrinks(self):
-        assert HISTORICAL_SUFFIXES <= set(ENTITY_SUFFIXES)
+        assert set(ENTITY_SUFFIXES) >= HISTORICAL_SUFFIXES
 
 
 class _RegistryEntry:
