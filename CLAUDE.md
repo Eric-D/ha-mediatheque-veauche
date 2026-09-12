@@ -282,8 +282,9 @@ Deux filtres dans `_loan_entries`, et **les deux sont nécessaires** :
 `async_remove_entry` n'exclut pas l'entrée en cours de suppression : Home
 Assistant la décharge avant d'appeler le handler, donc le filtre d'état s'en
 charge. **Ne pas se fier à sa présence dans la collection** : HA a inversé
-l'ordre en 2025.3 — avant, l'entrée était encore listée pendant le handler ;
-depuis, elle en est déjà sortie. Le filtre d'état est vrai des deux côtés.
+l'ordre en 2025.3, et l'entrée n'est plus listée pendant le handler. Le filtre
+d'état, lui, était déjà vrai avant l'inversion — c'est ce qui le rend
+préférable.
 
 L'ordre de `_loan_entries` n'est plus celui d'achèvement des setups, qui
 tournent concurremment, mais celui d'ajout à la collection. Plus déterministe,
@@ -296,7 +297,8 @@ verte : zéro capteur, et un `extend_loan` qui répond « aucun compte
 configuré ». D'où `tests/test_init.py::TestRuntimeDataIsActuallyWired`, qui lit
 la source — `sensor.py` n'étant pas importable sous les mocks.
 
-Le plancher tient : `runtime_data` et `ConfigEntry[T]` existent en 2024.11.
+`runtime_data` et `ConfigEntry[T]` existent depuis 2024.6 : bien en deçà du
+plancher, donc ce n'est pas ce refactor qui l'a fait bouger.
 
 ## Rechargement de l'entrée de configuration
 
@@ -350,12 +352,12 @@ clé brute à l'utilisateur.
 `en.json` n'est pas optionnel : `en` est la langue de **repli** de Home
 Assistant, donc ce que voit tout utilisateur non francophone. Les raisons
 d'abandon `reconfigure_successful` et `reauth_successful` sont produites par nos
-propres `async_abort` et se résolvent donc dans notre domaine. Sur les versions
-récentes, `async_update_reload_and_abort` les ferait résoudre par le cœur en
-passant `translation_domain` — mais ni ce passage ni le paramètre lui-même
-n'existent en 2024.11, le plancher déclaré : là-bas ces clés n'étaient pas
-mieux traduites avant la bascule qu'après. `translation_domain` n'est donc pas
-une alternative à ce fichier, sur aucune version supportée.
+propres `async_abort` et se résolvent donc dans notre domaine. On pourrait croire que
+`async_update_reload_and_abort` les ferait résoudre par le cœur en passant
+`translation_domain` : **`FlowHandler.async_abort` n'accepte toujours pas ce
+paramètre**, vérifié jusqu'en 2026.1. Ce n'est donc une alternative à ce
+fichier sur aucune version, et ces clés n'étaient pas mieux traduites avant la
+bascule du rechargement qu'après.
 
 `tests/test_translations.py` croise le flux et **tous** les fichiers de
 traduction ; ne pas le restreindre à `strings.json`.
@@ -501,21 +503,35 @@ Elles suivent le plancher, et elles divergent à dessein entre les jobs :
 
 - `target-version` de ruff et le job `test-python` sur **3.13**, le
   `REQUIRED_PYTHON_VER` de 2026.1 ;
-- le job `import-check` sur **3.14**, parce qu'il teste contre le Home
-  Assistant le plus récent, qui l'exige depuis 2026.3. Le laisser sur 3.13
-  ferait retomber la résolution sur une version plus ancienne, en silence, et
-  le job cesserait de faire ce pour quoi il existe.
+- `import-check` tourne deux fois, sur les deux extrémités de l'intervalle
+  supporté : **3.13 avec `homeassistant==2026.1.0`**, le plancher lui-même, et
+  **3.14 avec la dernière**, qui l'exige depuis 2026.3. Sans la première, le
+  plancher ne serait qu'un nombre dans `hacs.json` que rien n'exécute. Sans la
+  seconde, on ne verrait pas l'amont casser l'intégration. Laisser la seconde
+  sur 3.13 ferait retomber la résolution sur un HA plus ancien, en silence :
+  d'où l'assertion sur la version obtenue.
+
+**Développer sur 3.13 au minimum.** La suite passe sur 3.12 — `conftest.py`
+simule Home Assistant, donc rien n'y dépend de son interpréteur — mais ce vert
+ne prouve rien pour un utilisateur du plancher.
 
 ## Auditer les dépréciations
 
-Le mécanisme de dépréciation de Home Assistant est `report_usage()`, appelé à
-l'exécution : rien ne le signale à l'import ni en CI. Pour vérifier ce qu'on
-utilise :
+Home Assistant a **deux** mécanismes, et le premier ne se voit ni à l'import
+ni en CI :
+
+- `report_usage()`, appelé à l'exécution, qui journalise ;
+- `helpers/deprecation.py` — `deprecated_function`, `DeprecatedConstant`,
+  `EnumWithDeprecatedMembers` — dont `check_if_deprecated_constant` se
+  déclenche, lui, **à l'import**, par le `__getattr__` du module.
+
+Pour vérifier ce qu'on utilise :
 
 ```
 uv venv /tmp/ha --python 3.14
 uv pip install --python /tmp/ha/bin/python homeassistant beautifulsoup4 requests
 grep -rn "report_usage(" -A8 /tmp/ha/lib/*/site-packages/homeassistant/
+grep -rn "_DEPRECATED_" /tmp/ha/lib/*/site-packages/homeassistant/     # constantes
 ```
 
 Croiser les messages obtenus avec nos appels. Audit de septembre 2026 contre

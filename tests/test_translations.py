@@ -157,12 +157,18 @@ class TestOptionsFlowUsesTheBaseClassEntry:
     """
 
     def test_no_hand_stored_entry(self):
-        assert "self._config_entry" not in SOURCE, (
+        # Limite de mot : self._config_entry_id est une API publique de la
+        # classe de base, et la sous-chaîne nue la prenait pour une violation.
+        options = SOURCE.partition(_OPTIONS_CLASS)[2]
+        assert not re.search(r"self\._config_entry\b", options), (
             "l'entrée ne doit plus être stockée à la main : OptionsFlow la "
             "fournit par sa propriété config_entry"
         )
 
     def test_the_options_flow_has_no_constructor(self):
+        """La partition va jusqu'à la fin du fichier : une classe ajoutée après
+        celle-ci, avec un __init__ légitime, ferait échouer ce test. C'est le
+        signal qu'il faut alors délimiter la partition, pas la supprimer."""
         options = SOURCE.partition(_OPTIONS_CLASS)[2]
         assert "def __init__" not in options
 

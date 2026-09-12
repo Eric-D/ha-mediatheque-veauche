@@ -44,6 +44,16 @@ class TestHacsMinimumVersion:
             f"version illisible : {HACS['homeassistant']!r}"
         )
 
+    def test_the_readme_announces_the_same_floor(self):
+        """Le README est le seul endroit qu'un utilisateur lit avant
+        d'installer. Il annonçait encore 2024.11 après un relèvement du
+        plancher, et rien ne croisait les deux fichiers."""
+        readme = (ROOT / "README.md").read_text("utf-8")
+        major, minor = HACS["homeassistant"].split(".")[:2]
+        assert f"**{major}.{minor}**" in readme, (
+            f"README.md n'annonce pas le plancher {major}.{minor} de hacs.json"
+        )
+
     def test_covers_the_apis_in_use(self):
         major, minor = (
             int(p) for p in re.match(r"^(\d+)\.(\d+)", HACS["homeassistant"]).groups()
