@@ -423,93 +423,149 @@ class TestFetchSubscriptionExpiry:
 # Discrimination des échecs d'authentification
 # ---------------------------------------------------------------------------
 
-LOGIN_PAGE_WITH_TOKEN = (
-    '<html><body><form>'
+class _FakeSession:
+    """Session factice pilotée par une file de réponses.
+
+    Volontairement stricte : une requête non prévue échoue explicitement au lieu
+    de lever un IndexError opaque, et `requests` permet de vérifier que le
+    parcours réellement emprunté est celui qu'on croit.
+    """
+
+    def __init__(self, *responses):
+        self._queue = list(responses)
+        self.requests: list[str] = []
+        self.headers: dict[str, str] = {}
+
+    def _next(self, url):
+        self.requests.append(url)
+        assert self._queue, f"requête non prévue vers {url}"
+        return self._queue.pop(0)
+
+    def get(self, url, timeout=15):
+        return self._next(url)
+
+    def post(self, url, data=None, timeout=15):
+        return self._next(url)
+
+
+def _response(text="", url="https://mediatheque.veauche.fr/index.php", status=200):
+    return type("Response", (), {
+        "text": text,
+        "url": url,
+        "status_code": status,
+        "raise_for_status": lambda self: None,
+    })()
+
+
+LOGIN_PAGE = (
+    "<html><body><form>"
     '<input type="hidden" name="0123456789abcdef0123456789abcdef" value="1">'
+    '<input type="password" name="password">'
     "</form></body></html>"
+)
+BORROWINGS_PAGE = '<html><body><div id="profile_borrowed"><h2>DUPONT Jean</h2></div></body></html>'
+LOGIN_URL_AFTER_REDIRECT = (
+    "https://mediatheque.veauche.fr/index.php?option=com_users&view=login"
 )
 
 
 class TestAuthenticationErrors:
     """Seuls des identifiants refusés doivent solliciter l'utilisateur.
 
-    Un échec structurel — page de connexion modifiée, portail en maintenance —
-    ressemble à un échec d'identifiants sans en être un. Le remonter comme tel
-    déclencherait une notification « Reconfigurer » trompeuse, et l'utilisateur
-    chercherait au mauvais endroit. C'est la distinction que ConfigEntryAuthFailed
-    exige côté coordinator.
+    Un échec structurel — page modifiée, portail en maintenance, session
+    expirée — ressemble à un échec d'identifiants sans en être un. Le coût d'un
+    faux positif est élevé : Home Assistant cesse de replanifier ses mises à
+    jour tant que l'utilisateur n'a pas répondu, et on lui réclame un mot de
+    passe qui fonctionne.
     """
+
+    @staticmethod
+    def _install(monkeypatch, session):
+        monkeypatch.setattr(
+            "custom_components.mediatheque_veauche.scraper.requests.Session",
+            lambda: session,
+        )
 
     def test_invalid_credentials_is_an_authentication_error(self):
         """Le code existant attrape AuthenticationError : la hiérarchie doit tenir."""
         assert issubclass(InvalidCredentialsError, AuthenticationError)
 
-    def test_login_redirect_means_invalid_credentials(self, client, monkeypatch):
-        pages = [LOGIN_PAGE_WITH_TOKEN, "", ""]
-        urls = [
-            "https://mediatheque.veauche.fr/index.php",
-            "https://mediatheque.veauche.fr/index.php",
-            "https://mediatheque.veauche.fr/index.php?option=com_users&view=login",
-        ]
-
-        class _Session:
-            headers = {}
-
-            def update(self, *_):
-                pass
-
-            def _resp(self):
-                return type("Response", (), {
-                    "text": pages.pop(0),
-                    "url": urls.pop(0),
-                    "raise_for_status": lambda self: None,
-                })()
-
-            def get(self, url, timeout=15):
-                return self._resp()
-
-            def post(self, url, data=None, timeout=15):
-                return self._resp()
-
-        session = _Session()
-        session.headers = type("H", (), {"update": lambda self, *_: None})()
-        monkeypatch.setattr(
-            "custom_components.mediatheque_veauche.scraper.requests.Session",
-            lambda: session,
+    def test_successful_login_keeps_the_borrowings_page(self, client, monkeypatch):
+        session = _FakeSession(
+            _response(LOGIN_PAGE),
+            _response(),
+            _response(BORROWINGS_PAGE),
+            _response("<html><body></body></html>"),  # page profil, best effort
         )
+        self._install(monkeypatch, session)
+        client.login()
+        assert client._borrowings_html == BORROWINGS_PAGE
+        assert len(session.requests) == 4
+
+    def test_login_redirect_means_invalid_credentials(self, client, monkeypatch):
+        session = _FakeSession(
+            _response(LOGIN_PAGE),
+            _response(),
+            _response(LOGIN_PAGE, url=LOGIN_URL_AFTER_REDIRECT),
+        )
+        self._install(monkeypatch, session)
+        with pytest.raises(InvalidCredentialsError):
+            client.login()
+        # La page refusée ne doit pas être conservée comme si elle était valide
+        assert client._borrowings_html == ""
+
+    def test_http_401_on_login_means_invalid_credentials(self, client, monkeypatch):
+        session = _FakeSession(_response(LOGIN_PAGE), _response(status=401))
+        self._install(monkeypatch, session)
         with pytest.raises(InvalidCredentialsError):
             client.login()
 
-    def test_missing_csrf_token_is_not_a_credentials_problem(self, client, monkeypatch):
-        """Page de connexion sans jeton : le site a changé ou est en maintenance."""
+    def test_login_form_without_redirect_means_invalid_credentials(
+        self, client, monkeypatch
+    ):
+        """Le portail peut servir le formulaire à l'URL demandée, sans rediriger.
 
-        class _Session:
-            def __init__(self):
-                self.headers = type("H", (), {"update": lambda self, *_: None})()
-
-            def get(self, url, timeout=15):
-                return type("Response", (), {
-                    "text": "<html><body>Maintenance</body></html>",
-                    "url": url,
-                    "raise_for_status": lambda self: None,
-                })()
-
-        monkeypatch.setattr(
-            "custom_components.mediatheque_veauche.scraper.requests.Session",
-            _Session,
+        Sans preuve positive d'authentification, ce cas passait pour un succès :
+        aucune section trouvée, « 0 emprunt », et ce résultat vide écrasait le
+        cache contenant les vrais emprunts.
+        """
+        session = _FakeSession(
+            _response(LOGIN_PAGE),
+            _response(),
+            _response(LOGIN_PAGE),  # même URL, mais c'est le formulaire
         )
+        self._install(monkeypatch, session)
+        with pytest.raises(InvalidCredentialsError):
+            client.login()
+
+    def test_unrecognisable_page_is_not_a_credentials_problem(
+        self, client, monkeypatch
+    ):
+        """Une refonte du site produit la même absence de sections.
+
+        Réclamer un mot de passe serait ici doublement coûteux : inutile, et
+        bloquant tant que l'utilisateur n'a pas répondu.
+        """
+        session = _FakeSession(
+            _response(LOGIN_PAGE),
+            _response(),
+            _response("<html><body><p>Maintenance en cours</p></body></html>"),
+        )
+        self._install(monkeypatch, session)
+        with pytest.raises(AuthenticationError) as excinfo:
+            client.login()
+        assert not isinstance(excinfo.value, InvalidCredentialsError)
+
+    def test_missing_csrf_token_is_not_a_credentials_problem(self, client, monkeypatch):
+        session = _FakeSession(_response("<html><body>Maintenance</body></html>"))
+        self._install(monkeypatch, session)
         with pytest.raises(AuthenticationError) as excinfo:
             client.login()
         assert not isinstance(excinfo.value, InvalidCredentialsError)
 
     def test_expired_session_on_extend_is_not_a_credentials_problem(self, client):
         """Une session périmée se répare par une reconnexion, pas par l'utilisateur."""
-        resp = type("Response", (), {
-            "url": "https://mediatheque.veauche.fr/index.php?option=com_users&view=login",
-            "status_code": 200,
-            "raise_for_status": lambda self: None,
-        })()
-        client._session = type("Session", (), {"get": lambda self, u, timeout=15: resp})()
+        client._session = _FakeSession(_response(url=LOGIN_URL_AFTER_REDIRECT))
         with pytest.raises(AuthenticationError) as excinfo:
             client.extend_loan("https://mediatheque.veauche.fr/extend/1")
         assert not isinstance(excinfo.value, InvalidCredentialsError)

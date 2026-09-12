@@ -119,7 +119,14 @@ Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents
 
 Si la médiathèque refuse vos identifiants — mot de passe changé sur leur site, compte suspendu — Home Assistant affiche une notification **« Reconfigurer »** sur l'intégration et vous demande le mot de passe à jour. La synchronisation reprend dès qu'il est accepté.
 
-Tant que ce n'est pas fait, les capteurs deviennent indisponibles plutôt que de continuer à servir les données du cache : des emprunts affichés comme à jour alors qu'ils ne le sont plus seraient pires que pas de données du tout.
+Tant que ce n'est pas fait, les capteurs deviennent indisponibles plutôt que de continuer à servir les données du cache : des emprunts affichés comme à jour alors qu'ils ne le sont plus seraient pires que pas de données du tout. La carte affiche alors un message explicite, et non le dernier rendu figé.
+
+Deux conséquences à connaître :
+
+- **La synchronisation ne redémarre pas toute seule.** Home Assistant cesse de replanifier les mises à jour jusqu'à ce que la reconnexion aboutisse — c'est voulu, réessayer avec un mot de passe refusé ne sert à rien et risquerait de faire bloquer le compte.
+- **Les cinq capteurs deviennent indisponibles**, y compris « Fin cotisation » et « Dernière MAJ », qui ne dépendent pourtant pas des identifiants. Une automatisation qui lit `sensor.emprunts_mediatheque` échouera pendant cette période : pensez à la protéger par `has_value()` ou `states(...) not in ['unavailable', 'unknown']`.
+
+Si c'est votre **identifiant** qui a changé — carte renouvelée, numéro différent — le formulaire de reconnexion ne suffira pas : il ne demande que le mot de passe. Passez par **Reconfigurer** dans le menu de l'intégration.
 
 Les autres pannes — site injoignable, portail en maintenance, page de connexion modifiée — ne déclenchent **pas** cette demande : elles sont réessayées, et les données du cache restent affichées avec un bandeau d'avertissement si elles datent d'un jour antérieur.
 

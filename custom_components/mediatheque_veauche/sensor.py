@@ -140,6 +140,10 @@ async def async_setup_entry(
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        # Explicite plutôt que déduit du ContextVar : sans entrée de
+        # configuration, le coordinator n'appelle pas async_start_reauth et le
+        # flux de ré-authentification ne démarrerait jamais, en silence.
+        config_entry=entry,
         name=f"{DOMAIN}_{username}",
         update_method=async_update_data,
         update_interval=timedelta(minutes=scan_interval),

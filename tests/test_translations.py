@@ -59,14 +59,38 @@ class TestConfigFlowStrings:
         orphans = set(STRINGS["config"]["step"]) - CONFIG_STEPS
         assert not orphans, f"traductions d'étapes inexistantes : {sorted(orphans)}"
 
+    def test_error_detection_is_not_broken(self):
+        """Garde sur la garde.
+
+        Les clés d'erreur sont repérées par analyse de la source. Si le code
+        cesse de les écrire en littéraux — passage par une constante ou un
+        dictionnaire —, l'ensemble deviendrait vide et toutes les assertions
+        d'inclusion resteraient vertes en ne testant plus rien.
+        """
+        assert DECLARED_ERRORS, (
+            "aucune clé d'erreur détectée dans config_flow.py : les expressions "
+            "régulières ne correspondent plus au code"
+        )
+
+    def test_step_detection_is_not_broken(self):
+        assert CONFIG_STEPS, "aucune étape de configuration détectée"
+        assert OPTIONS_STEPS, "aucune étape d'options détectée"
+
     def test_every_error_key_is_translated(self):
         declared = set(STRINGS["config"]["error"])
-        missing = {e for e in DECLARED_ERRORS if e in {"invalid_auth", "cannot_connect"}}
-        assert missing <= declared, f"erreurs sans traduction : {sorted(missing - declared)}"
+        missing = DECLARED_ERRORS - declared
+        assert not missing, f"erreurs sans traduction : {sorted(missing)}"
 
     def test_reauth_abort_reason_is_translated(self):
-        """async_update_reload_and_abort déduit « reauth_successful » de la source
-        du flux : sans traduction, l'utilisateur voit la clé brute."""
+        """async_update_reload_and_abort déduit « reauth_successful » de la
+        source du flux.
+
+        Sur Home Assistant récent cette raison est résolue dans le domaine
+        « homeassistant », et notre traduction est alors ignorée au profit de la
+        chaîne générique. Elle reste nécessaire pour les versions qui la
+        résolvent dans le domaine de l'intégration, où son absence afficherait
+        la clé brute.
+        """
         assert "reauth_successful" in STRINGS["config"]["abort"]
 
     def test_reauth_description_uses_its_placeholder(self):

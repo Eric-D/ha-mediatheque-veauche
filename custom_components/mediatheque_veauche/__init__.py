@@ -194,6 +194,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
         "username": username,
+        # Mémorisé pour que le listener de mise à jour sache distinguer un
+        # changement d'options d'un simple changement de données.
+        "options": dict(entry.options),
     }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -239,7 +242,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
+    """Recharge l'entrée, mais seulement si les options ont réellement changé.
+
+    async_update_reload_and_abort — utilisé par les flux de reconfiguration et
+    de ré-authentification — met à jour l'entrée ET programme un rechargement.
+    La mise à jour déclenche au passage ce listener, d'où un second
+    rechargement : deux cycles unload/setup, donc deux connexions consécutives
+    au portail, juste après qu'on l'a soupçonné de refuser le compte.
+    """
+    stored = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    if isinstance(stored, dict) and stored.get("options") == dict(entry.options):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

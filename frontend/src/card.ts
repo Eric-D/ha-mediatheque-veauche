@@ -371,7 +371,22 @@ export class MediathequeCard extends LitElement {
         this._hasRendered ? '(keeping last render)' : '(showing loader)'
       );
       this._retry.schedule();
-      if (this._hasRendered) return this._lastTemplate ?? this._renderLoader(title);
+      if (this._hasRendered && !this._retry.exhausted) {
+        // Indisponibilité brève : garder le dernier rendu évite un
+        // clignotement à chaque reload de l'intégration.
+        return this._lastTemplate ?? this._renderLoader(title);
+      }
+      if (this._hasRendered) {
+        // Quota de retries épuisé : continuer d'afficher le dernier rendu
+        // ferait passer des emprunts périmés pour à jour, sans le moindre
+        // indice — précisément ce que le bandeau de péremption évite dans le
+        // cas du repli sur cache, mais ce chemin-ci ne l'atteint jamais
+        // puisque l'entité est indisponible.
+        return this._renderLoader(
+          title,
+          'Données indisponibles — vérifiez l\'intégration (identifiants ?)'
+        );
+      }
       // Une fois le quota de retries épuisé, plus rien ne relancera la carte de
       // lui-même : un spinner perpétuel ferait croire à un chargement en cours.
       this._lastTemplate = this._renderLoader(

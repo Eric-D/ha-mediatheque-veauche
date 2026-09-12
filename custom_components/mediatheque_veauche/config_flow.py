@@ -96,7 +96,9 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle reconfiguration of credentials."""
         errors: dict[str, str] = {}
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        # _get_reconfigure_entry lève UnknownEntry au lieu de renvoyer None,
+        # qui produisait un AttributeError opaque plus bas.
+        entry = self._get_reconfigure_entry()
 
         if user_input is not None:
             error = await self._async_validate(
