@@ -99,6 +99,38 @@ class TestConfigFlowStrings:
         assert "{username}" in description
 
 
+class TestReloadIsScheduledOnce:
+    """Un seul endroit doit programmer le rechargement.
+
+    Home Assistant déprécie async_update_reload_and_abort pour une intégration
+    qui enregistre un listener de mise à jour — le listener est censé s'en
+    charger — avec une casse annoncée en 2026.12. config_flow.py n'étant pas
+    importable sous les mocks, on lit la source.
+    """
+
+    def test_no_deprecated_update_reload_and_abort(self):
+        """Un appel, pas une mention : la docstring du remplaçant le nomme."""
+        calls = re.findall(r"self\.async_update_reload_and_abort\(", SOURCE)
+        assert not calls, (
+            "async_update_reload_and_abort programme un rechargement alors "
+            "qu'un listener est enregistré : déprécié, casse en 2026.12"
+        )
+
+    def test_unchanged_entry_is_still_reloaded(self):
+        """Même mot de passe ressaisi : aucun listener, donc rechargement explicite.
+
+        Sans ça l'entrée resterait en erreur d'authentification alors que les
+        identifiants viennent d'être validés.
+        """
+        assert "async_schedule_reload" in SOURCE
+
+    def test_abort_reasons_are_translated(self):
+        reasons = set(re.findall(r'async_abort\(reason="([a-z_]+)"', SOURCE))
+        assert reasons, "aucune raison d'abandon détectée"
+        missing = reasons - set(STRINGS["config"]["abort"])
+        assert not missing, f"raisons d'abandon sans traduction : {sorted(missing)}"
+
+
 class TestTranslationFilesMatch:
     def test_same_keys_as_strings(self):
         reference = _flat(STRINGS)

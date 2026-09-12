@@ -204,6 +204,25 @@ reprendrait l'orpheline en premier, lui ferait capter l'identifiant, et
 abandonnerait la vivante. Le remède est plus probable que le mal — il se
 déclenche sans crash, la fenêtre ne s'ouvre qu'avec.
 
+## Rechargement de l'entrée de configuration
+
+Un seul endroit recharge : le listener `async_update_options`
+(`__init__.py`). Home Assistant déprécie `async_update_reload_and_abort` pour
+une intégration qui enregistre un listener de mise à jour — c'est au listener
+de s'en charger — avec une **casse annoncée en 2026.12**.
+
+Les flux de reconfiguration et de ré-authentification passent donc par
+`_update_and_reload` (`config_flow.py`), qui appelle `async_update_entry` puis,
+**seulement si l'entrée n'a pas changé**, programme le rechargement lui-même.
+Ce second cas n'est pas théorique : c'est le mot de passe correct ressaisi
+après un échec transitoire. `async_update_entry` ne déclenche aucun listener
+quand rien ne change, et l'entrée resterait en erreur d'authentification alors
+que les identifiants viennent d'être validés.
+
+Le listener a été conditionné aux options pendant un temps, pour éviter un
+double rechargement. **Ne pas rétablir cette condition** : elle rendrait une
+reconfiguration sans effet, puisqu'elle ne touche que les données.
+
 ## Méthode de diagnostic
 
 Le chemin nominal de la carte est instrumenté à dessein (`setConfig accepté`,

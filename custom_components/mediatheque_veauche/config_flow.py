@@ -123,12 +123,13 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
                     # ultérieure portant le nouveau login ne serait pas détectée
                     # comme doublon. Les identifiants uniques des entités, eux,
                     # dérivent de l'entry_id et ne bougent pas.
-                    return self.async_update_reload_and_abort(
+                    self._update_and_reload(
                         entry,
                         unique_id=new_username,
                         title=f"Médiathèque ({new_username})",
-                        data_updates=user_input,
+                        data={**entry.data, **user_input},
                     )
+                    return self.async_abort(reason="reconfigure_successful")
 
         current_username = entry.data.get(CONF_USERNAME, "")
         return self.async_show_form(
@@ -141,6 +142,22 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    def _update_and_reload(self, entry: ConfigEntry, **updates: Any) -> None:
+        """Met à jour l'entrée en garantissant un rechargement.
+
+        Pas async_update_reload_and_abort : il programme lui-même un
+        rechargement alors qu'un listener de mise à jour est enregistré, ce que
+        Home Assistant déprécie avec une casse annoncée en 2026.12.
+
+        Quand l'entrée change réellement, async_update_entry déclenche le
+        listener, qui recharge. Quand elle ne change pas — même mot de passe
+        ressaisi après un échec transitoire — aucun listener n'est appelé, et
+        il faut recharger explicitement : sans ça l'entrée resterait en erreur
+        d'authentification alors que les identifiants viennent d'être validés.
+        """
+        if not self.hass.config_entries.async_update_entry(entry, **updates):
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
 
     def _username_taken_by_another_entry(
         self, entry: ConfigEntry, username: str
@@ -174,9 +191,10 @@ class MediathequeVeaucheConfigFlow(ConfigFlow, domain=DOMAIN):
             if error:
                 errors["base"] = error
             else:
-                return self.async_update_reload_and_abort(
-                    entry, data_updates=user_input
+                self._update_and_reload(
+                    entry, data={**entry.data, **user_input}
                 )
+                return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
             step_id="reauth_confirm",

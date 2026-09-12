@@ -293,9 +293,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
         "username": username,
-        # Mémorisé pour que le listener de mise à jour sache distinguer un
-        # changement d'options d'un simple changement de données.
-        "options": dict(entry.options),
     }
 
     # Register extend_loan service (once)
@@ -321,17 +318,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Recharge l'entrée, mais seulement si les options ont réellement changé.
+    """Recharge l'entrée après toute modification.
 
-    async_update_reload_and_abort — utilisé par les flux de reconfiguration et
-    de ré-authentification — met à jour l'entrée ET programme un rechargement.
-    La mise à jour déclenche au passage ce listener, d'où un second
-    rechargement : deux cycles unload/setup, donc deux connexions consécutives
-    au portail, juste après qu'on l'a soupçonné de refuser le compte.
+    Ce listener est le SEUL endroit qui recharge sur modification, et c'est ce
+    que Home Assistant attend d'une intégration qui en enregistre un :
+    async_update_reload_and_abort déprécie le fait de programmer lui-même un
+    rechargement dans ce cas, avec une casse annoncée en 2026.12.
+
+    Il était auparavant conditionné aux options, pour éviter le double
+    rechargement que produisait async_update_reload_and_abort. Cette condition
+    n'a plus lieu d'être — et la garder rendrait une reconfiguration sans
+    effet, puisqu'elle ne touche que les données.
     """
-    stored = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    if isinstance(stored, dict) and stored.get("options") == dict(entry.options):
-        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
