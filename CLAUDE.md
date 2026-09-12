@@ -63,6 +63,55 @@ https://developers.home-assistant.io/docs/frontend/custom-ui/custom-card/
 `add_extra_js_url` est un helper interne du composant `frontend`, pas le chemin
 prévu pour livrer une carte.
 
+## Invariants de la carte
+
+Repris de `.specify/memory/constitution.md`, supprimé en septembre 2026 : deux
+de ses principes étaient factuellement faux et avaient produit un correctif
+nuisible, plusieurs autres décrivaient un code qui n'existait plus. Ne sont
+conservés ici que des invariants vérifiés contre le code.
+
+### Écarts délibérés au contrat des cartes personnalisées
+
+Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
+
+- **`setConfig()` ne lève pas pour une entité absente ou vide.** La convention
+  Home Assistant veut qu'elle lève ; ici ça rendait la carte irrécupérable
+  depuis l'interface — l'éditeur émet une configuration sans `entity` dès qu'on
+  vide le champ, et la carte restait en erreur définitive. On loggue et on
+  affiche un loader. Seule une configuration non-objet lève encore.
+- **Pas de garde d'égalité dans le setter `hass`.** Lit enveloppe le setter et
+  appelle `requestUpdate()` quoi qu'il arrive : une telle garde est du code
+  mort qui donne l'illusion d'optimiser. Le filtrage des re-rendus vit dans
+  `shouldUpdate()`.
+- **Pas de `performUpdate()` synchrone dans `connectedCallback`.** Il y en a eu
+  un, ajouté contre une cause inventée — « HA interprète un rendu vide comme
+  une erreur de configuration », ce qui n'existe pas. Il faisait rendre la
+  carte de façon ré-entrante dans le commit Lit de Home Assistant, et son
+  retrait a mesurablement accéléré les changements de page.
+
+### Ce qui doit rester vrai
+
+- **Aucune dépendance runtime externe.** Pas de CDN, pas de police distante :
+  tout est inliné dans le bundle, qui doit fonctionner hors ligne et en WebView
+  Android. `frontend/package.json` ne déclare que des `devDependencies`.
+- **Jamais `unsafeHTML` sur du contenu venant du capteur.** `unsafeSVG` n'est
+  utilisé que sur le code-barres, généré à partir d'une table blanche de
+  caractères et d'entiers calculés — aucune donnée externe n'y est interpolée.
+- **`extend_url` n'est jamais un lien cliquable.** Elle passe par le service
+  `mediatheque_veauche.extend_loan`, qui vérifie à quel compte elle appartient.
+- **`render()` retourne toujours un `<ha-card>` visible**, loader compris. Pas
+  parce que Home Assistant inspecterait le shadow root — il ne le fait pas —
+  mais parce qu'un rendu vide ne donne à l'utilisateur aucune information.
+- **Le dernier rendu n'est conservé que tant qu'il reste des retries.**
+  Au-delà (environ 100 s d'indisponibilité continue), message explicite :
+  afficher indéfiniment des emprunts périmés sans aucun indice est le
+  comportement qu'on cherche à éviter.
+- **`customElements.define` reste gardé** par `if (!customElements.get(...))` :
+  sur WebView Android le script peut être ré-évalué au retour de veille.
+
+`frontend/src/card.ts` fait plus de 900 lignes, pour un objectif affiché de 300.
+C'est une dette connue, pas un invariant respecté.
+
 ## Méthode de diagnostic
 
 Le chemin nominal de la carte est instrumenté à dessein (`setConfig accepté`,
