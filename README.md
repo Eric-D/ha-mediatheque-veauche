@@ -16,6 +16,8 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 - Intervalle de mise à jour configurable
 - Compatible HACS
 
+> **Prérequis** : Home Assistant **2024.11** ou plus récent.
+
 ## Installation
 
 ### Manuelle

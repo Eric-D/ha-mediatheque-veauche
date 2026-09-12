@@ -13,7 +13,12 @@ import json
 import pathlib
 import sys
 
-MANIFEST = pathlib.Path("custom_components/mediatheque_veauche/manifest.json")
+# Relatif au script et non au répertoire courant : l'appelant n'a pas à se
+# trouver à la racine du dépôt.
+MANIFEST = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "custom_components/mediatheque_veauche/manifest.json"
+)
 
 
 def main() -> int:

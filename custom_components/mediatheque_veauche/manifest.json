@@ -1,7 +1,6 @@
 {
   "domain": "mediatheque_veauche",
   "name": "Médiathèque de Veauche",
-  "after_dependencies": ["lovelace"],
   "codeowners": ["@Eric-D"],
   "config_flow": true,
   "dependencies": ["http", "frontend"],

@@ -1,9 +1,15 @@
-"""Garde sur les métadonnées de paquet.
+"""Gardes sur ce que hassfest ne valide pas.
 
-Elles ne sont exercées qu'à l'installation chez l'utilisateur : une valeur
-fausse passe toute la CI et ne se voit qu'au moment où l'intégration refuse de
-démarrer. C'est ce qui est arrivé à la version minimale de Home Assistant,
-annoncée à 2023.1.0 alors que le code utilise des API de 2024.7.
+hassfest (job « hassfest » de validate.yml) valide réellement le manifeste :
+existence des dépendances, absence de cycle, ordre des clés, vocabulaire de
+integration_type, et la règle « composant importé mais non déclaré ». Dupliquer
+ça ici avec des assertions écrites à la main ne donnerait que des tautologies
+relisant le fichier qu'on vient d'écrire.
+
+Restent deux choses que hassfest ignore et qui ne se voient autrement qu'à
+l'installation ou après publication : le plancher de version annoncé à HACS, et
+la cohérence des numéros de version entre les fichiers que le workflow de
+release met à jour par substitution.
 """
 from __future__ import annotations
 
@@ -17,60 +23,40 @@ MANIFEST = json.loads(
 )
 HACS = json.loads((ROOT / "hacs.json").read_text("utf-8"))
 
-# Valeurs admises par hassfest (script/hassfest/manifest.py).
-INTEGRATION_TYPES = {
-    "device", "entity", "hardware", "helper", "hub", "service", "system",
-}
 
+class TestHacsMinimumVersion:
+    """hacs.json ne bloque que l'installation via HACS, rien d'autre.
 
-class TestManifest:
-    def test_required_keys(self):
-        for key in (
-            "domain", "name", "codeowners", "config_flow", "documentation",
-            "iot_class", "issue_tracker", "requirements", "version",
-        ):
-            assert key in MANIFEST, f"clé « {key} » absente du manifeste"
+    C'est un cliquet, pas une preuve : il empêche d'abaisser le plancher par
+    inadvertance, mais il ne peut pas détecter qu'une API nouvellement utilisée
+    exige plus récent. C'est arrivé avec getGridOptions, qui n'existe qu'à
+    partir du frontend 20241106.0 (Home Assistant 2024.11) et qui était passé
+    inaperçu.
+    """
 
-    def test_integration_type_is_valid(self):
-        assert MANIFEST.get("integration_type") in INTEGRATION_TYPES
+    def test_is_parsable(self):
+        assert re.match(r"^\d+\.\d+", HACS["homeassistant"]), (
+            f"version illisible : {HACS['homeassistant']!r}"
+        )
 
-    def test_declares_the_components_it_uses(self):
-        """hass.http et frontend sont utilisés dès async_setup.
-
-        Sans déclaration, rien ne garantit qu'ils soient configurés à ce
-        moment-là : l'intégration dépendrait d'un ordre de démarrage non
-        contractuel.
-        """
-        assert set(MANIFEST.get("dependencies", [])) >= {"http", "frontend"}
-
-    def test_lovelace_is_only_an_after_dependency(self):
-        """La collection de ressources est sondée défensivement et son absence
-        est gérée : en faire une dépendance dure ferait échouer le setup sur une
-        installation sans dashboards."""
-        assert "lovelace" in MANIFEST.get("after_dependencies", [])
-        assert "lovelace" not in MANIFEST.get("dependencies", [])
-
-    def test_version_looks_like_a_release(self):
-        assert re.fullmatch(r"\d+\.\d+\.\d+", MANIFEST["version"])
-
-
-class TestHacsManifest:
-    def test_minimum_home_assistant_version(self):
-        """Doit couvrir async_register_static_paths / StaticPathConfig, absents
-        de 2024.6.0 et présents en 2024.7.0."""
-        major, minor, *_ = (int(p) for p in HACS["homeassistant"].split("."))
-        assert (major, minor) >= (2024, 7), (
-            f"version minimale annoncée {HACS['homeassistant']} : trop basse pour "
-            "les API utilisées"
+    def test_covers_the_apis_in_use(self):
+        major, minor = (
+            int(p) for p in re.match(r"^(\d+)\.(\d+)", HACS["homeassistant"]).groups()
+        )
+        assert (major, minor) >= (2024, 11), (
+            f"plancher annoncé {HACS['homeassistant']} : trop bas. "
+            "async_register_static_paths et StaticPathConfig exigent 2024.7, "
+            "getGridOptions exige 2024.11."
         )
 
 
 class TestVersionsAreSynchronised:
-    """Le workflow de release propage la version par sed dans quatre fichiers.
+    """Le workflow de release propage la version par substitution.
 
     Un sed qui ne matche plus échoue silencieusement et publie un paquet dont
-    les versions divergent — notamment CARD_VERSION, qui sert de cache-buster
-    pour la ressource Lovelace.
+    les versions divergent. Le cas le plus coûteux est CARD_VERSION, qui sert de
+    cache-buster à la ressource Lovelace : désynchronisé, il fait resservir un
+    module périmé derrière une URL fraîche.
     """
 
     def test_card_version_matches_manifest(self):
@@ -80,12 +66,29 @@ class TestVersionsAreSynchronised:
 
     def test_frontend_constant_matches_manifest(self):
         source = (ROOT / "frontend/src/version.ts").read_text("utf-8")
-        match = re.search(
-            r"export const MEDIATHEQUE_CARD_VERSION = '([^']+)';", source
-        )
+        match = re.search(r"export const MEDIATHEQUE_CARD_VERSION = '([^']+)';", source)
         assert match, "constante de version introuvable dans version.ts"
         assert match.group(1) == MANIFEST["version"]
 
     def test_package_json_matches_manifest(self):
         package = json.loads((ROOT / "frontend/package.json").read_text("utf-8"))
         assert package["version"] == MANIFEST["version"]
+
+    def test_package_lock_matches_manifest(self):
+        """npm version l'écrit à deux endroits, et il est commité par la release."""
+        lock = json.loads((ROOT / "frontend/package-lock.json").read_text("utf-8"))
+        assert lock["version"] == MANIFEST["version"]
+        assert lock["packages"][""]["version"] == MANIFEST["version"]
+
+    def test_committed_bundle_embeds_manifest_version(self):
+        """Le bundle est reconstruit puis commité par la release.
+
+        Si le rebuild saute ou passe avant la substitution, la bannière du
+        bundle annonce l'ancienne version tandis que l'URL porte la nouvelle :
+        un module périmé servi derrière un cache-buster frais, exactement le
+        symptôme que CARD_VERSION existe pour éviter.
+        """
+        bundle = (
+            ROOT / "custom_components/mediatheque_veauche/www/mediatheque-card.js"
+        ).read_text("utf-8")
+        assert f'"{MANIFEST["version"]}"' in bundle

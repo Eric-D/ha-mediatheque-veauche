@@ -83,6 +83,39 @@ Le bundle `custom_components/mediatheque_veauche/www/mediatheque-card.js` est
 commité et la CI vérifie qu'il correspond aux sources. Après toute modification
 de `frontend/src/`, lancer `cd frontend && npm run build` avant de commiter.
 
-Les versions (`manifest.json`, `CARD_VERSION`, `frontend/src/version.ts`,
-`package.json`) sont mises à jour automatiquement par le workflow de release à
-partir du tag. Ne pas les bumper à la main.
+Les versions sont mises à jour automatiquement par le workflow de release à
+partir du tag, dans **six** fichiers : `manifest.json`, `CARD_VERSION` de
+`__init__.py`, `frontend/src/version.ts`, `frontend/package.json`,
+`frontend/package-lock.json`, et le bundle reconstruit. Ne pas les bumper à la
+main. `tests/test_manifest.py` vérifie qu'ils restent synchronisés — une
+substitution qui ne matche plus échoue silencieusement, et sur `CARD_VERSION`
+ça ferait resservir un bundle périmé derrière un cache-buster frais.
+
+## Exécuter les tests
+
+```
+pip install -r requirements_test.txt
+python scripts/manifest_requirements.py
+pip install -r manifest-requirements.txt
+pytest
+```
+
+Les deux commandes du milieu sont nécessaires : les dépendances runtime
+(`beautifulsoup4`, `requests`) ne sont pas recopiées dans
+`requirements_test.txt`, elles viennent du manifeste, qui en est l'unique
+source de vérité. Home Assistant n'est pas installé — `tests/conftest.py` le
+simule. Le job `import-check` de la CI l'installe, lui, pour de vrai.
+
+## Version minimale de Home Assistant
+
+`2024.11.0`, déclarée dans `hacs.json`. Déterminée par les API réellement
+utilisées, vérifiées contre les sources de Home Assistant :
+
+- `async_register_static_paths` et `StaticPathConfig` → 2024.7 (absents de
+  2024.6.0) ;
+- `getGridOptions()` de la carte → frontend `20241106.0`, soit **2024.11**.
+
+Avant d'utiliser une nouvelle API de Home Assistant ou de son frontend,
+vérifier le tag qui l'introduit et relever ce plancher si besoin.
+`tests/test_manifest.py` n'est qu'un cliquet : il empêche de l'abaisser, il ne
+peut pas détecter qu'une API récente exige davantage.
