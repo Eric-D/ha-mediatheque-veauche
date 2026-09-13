@@ -40,20 +40,46 @@ describe('renderDetailModal', () => {
         onOverlayClick: s.on('overlay'),
         onClose: s.on('close'),
         onExtend: s.on('extend'),
+        onToggleRead: s.on('read'),
         ...over,
       })
     );
 
   test('chaque bouton appelle SON gestionnaire', () => {
-    // Trois rappels de même signature : les intervertir fermerait la modale en
-    // croyant prolonger. Ni le typage ni le linter ne le verraient.
+    // Quatre rappels de même signature : les intervertir fermerait la modale en
+    // croyant prolonger, ou marquerait lu en croyant fermer. Ni le typage ni le
+    // linter ne le verraient.
     const s = spies();
     const host = detail({}, s);
 
     click(host, '.mc-modal-btn-close');
+    click(host, '.mc-modal-btn-read');
     click(host, '.mc-modal-btn-extend');
 
-    assert.deepEqual(s.buttons, ['close', 'extend']);
+    assert.deepEqual(s.buttons, ['close', 'read', 'extend']);
+  });
+
+  test('le bouton de lecture dit ce que le clic va faire, pas l\'état', () => {
+    // « Lu » sur un livre non lu se lit comme une étiquette, pas comme une
+    // action : l'utilisateur croit l'avoir déjà marqué.
+    assert.equal(text(detail({ loan: loan({ read: false }) }), '.mc-modal-btn-read'),
+      'Marquer comme lu');
+    assert.equal(text(detail({ loan: loan({ read: true }) }), '.mc-modal-btn-read'),
+      'Marquer non lu');
+  });
+
+  test('un livre lu porte la mention, un autre non', () => {
+    assert.equal(text(detail({ loan: loan({ read: true }) }), '.mc-modal-read'), '✓ Lu');
+    assert.equal(detail({ loan: loan({ read: false }) }).querySelector('.mc-modal-read'), null);
+  });
+
+  test('sans clé, pas de bouton de lecture', () => {
+    // Le service n'aurait rien à écrire : mieux vaut masquer le contrôle que
+    // d'offrir un bouton dont le clic échoue en silence.
+    const host = detail({ loan: loan({ read_key: null }) });
+
+    assert.equal(host.querySelector('.mc-modal-btn-read'), null);
+    assert.ok(host.querySelector('.mc-modal-btn-close'));
   });
 
   test('le clic sur le fond appelle le gestionnaire d\'overlay', () => {

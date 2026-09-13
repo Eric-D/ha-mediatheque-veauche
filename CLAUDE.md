@@ -300,6 +300,102 @@ la source — `sensor.py` n'étant pas importable sous les mocks.
 `runtime_data` et `ConfigEntry[T]` existent depuis 2024.6 : bien en deçà du
 plancher, donc ce n'est pas ce refactor qui l'a fait bouger.
 
+## État « lu » des livres
+
+`read` et `read_key` ne viennent **pas** du scraper : ils sont dérivés de
+`read_status.ReadStatus` au moment de **servir**, exactement comme `days_left`,
+et pour la même raison. Le cache disque garde la sortie brute ; y écrire `read`
+le figerait à la date du scrape, et une journée d'indisponibilité du portail
+resservirait l'état de lecture de la veille sans le dire.
+
+`with_read_flags` renvoie une **copie**. Muter en place laisserait l'ancien
+`State` référencer les mêmes dicts, aucun `state_changed` ne serait émis, et le
+badge n'apparaîtrait qu'au cycle de poll suivant — une heure après le clic, par
+défaut.
+
+### `with_derived`, et pourquoi les trois chemins y passent
+
+Les trois chemins qui servent des données — fetch réussi, repli sur cache,
+pré-remplissage au démarrage — passent par `coordinator.with_derived`, qui
+compose `with_days_left` et `with_read_flags`. **Ne pas les rappeler
+séparément** : c'est précisément la forme qui laisse un chemin en oublier une,
+en silence. Le seul symptôme serait un badge manquant sur le rendu qui suit un
+redémarrage, et rien en CI ne le verrait — le troisième chemin vit dans
+`sensor.py`, non importable sous les mocks.
+
+Pour la même raison, `read_status` est un paramètre **requis** de
+`MediathequeDataSource` : un défaut à `None` ferait servir un jeu de clés vide
+si l'appelant l'oubliait, donc aucun livre jamais marqué lu, sans erreur et
+avec la CI au vert.
+
+### Portée et stockage
+
+La portée est le **foyer**, pas le membre : la clé est celle du livre seul,
+donc deux enfants qui empruntent le même titre voient le même badge. C'est un
+choix de septembre 2026, pas un oubli.
+
+`ReadStatus` est un **singleton de domaine**, dans `hass.data[READ_STATUS_KEY]`,
+et non dans `entry.runtime_data`. Ce n'est pas une entorse à la règle des
+données d'exécution : `runtime_data` est par définition par entrée, et Home
+Assistant le supprime au déchargement, alors que l'état de lecture doit être
+commun à tous les comptes et survivre à un rechargement.
+
+`async_get_read_status` passe par `hass.data.setdefault`, atomique faute de
+point de suspension. Un « si absent, créer » en deux temps laisserait deux
+setups concurrents installer chacun leur objet, donc deux vues divergentes du
+même fichier dont la dernière écriture écraserait l'autre. Le chargement, lui,
+est protégé par le verrou interne de l'objet — **ne pas le retirer** : sans
+lui, la seconde entrée peut lire `keys` avant la fin du chargement et servir un
+premier rendu sans aucun badge. Le test qui le couvre n'a de valeur que parce
+que son double de `Store` comporte un `await` réel ; sans ce point de
+suspension, `gather` mène la première tâche jusqu'au bout et la course ne se
+produit jamais.
+
+### La clé
+
+`loan_key` préfère `book_id`, l'identifiant du catalogue, qui survit au retour
+puis au réemprunt — c'est toute la propriété recherchée. Repli sur le titre
+normalisé quand le titre n'est pas un lien. **Garder les deux préfixes**
+(`id:` / `titre:`) : sans eux, un catalogue dont les identifiants sont des mots
+ferait collisionner un livre avec le titre d'un autre.
+
+La clé est calculée en Python et exposée à la carte, qui la **renvoie telle
+quelle** au service. Ne pas la recalculer en TypeScript : la normalisation du
+titre y passerait par `toLowerCase`, qui ne fait pas le travail de `casefold`,
+et la divergence ne se verrait que sur les livres sans lien.
+
+### Deux résidus assumés
+
+`prune_entries` **garde** une entrée dont la date de marquage est illisible, au
+lieu de la purger : c'est plus probablement un format hérité qu'une corruption,
+et perdre l'état de lecture d'un utilisateur pour une date illisible serait un
+remède pire que le mal.
+
+`_async_set_read` écrit sur le disque **avant** de pousser quoi que ce soit aux
+coordinators. L'inverse ferait afficher le badge alors que rien n'est
+persisté, et le prochain redémarrage le ferait disparaître sans explication.
+L'écriture a lieu même quand aucun prêt en cours ne porte la clé : on peut
+marquer lu un livre qu'on vient de rendre.
+
+### Côté carte
+
+La bascule de la tuile est un `<span role="button">`, pas un `<button>` : la
+tuile entière est déjà un `<button>`, et imbriquer deux boutons est du HTML
+invalide que les navigateurs réparent en les mettant côte à côte — la pastille
+sortirait de la tuile. Son `@click` appelle `stopPropagation`, sans quoi marquer
+un livre lu ouvrirait la fiche dans la foulée.
+
+`_toggleRead` bascule `_detailLoan` de façon optimiste. `_detailLoan` est une
+**capture** du prêt au moment du clic, pas une vue sur les données : la mise à
+jour poussée par le coordinator remplace les prêts dans `hass` mais laisse
+cette capture intacte. Et `shouldUpdate` bloque de toute façon les
+rafraîchissements venus de `hass` tant qu'une modale est ouverte. Sans cette
+bascule locale, le bouton garderait son libellé d'avant jusqu'à la réouverture.
+
+Les libellés disent l'**action** (« Marquer comme lu »), jamais l'état : « Lu »
+sur un livre non lu se lit comme une étiquette, et l'utilisateur croit l'avoir
+déjà marqué.
+
 ## Rechargement de l'entrée de configuration
 
 Un seul endroit recharge : le listener `async_update_options`

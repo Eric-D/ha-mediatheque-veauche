@@ -489,7 +489,13 @@ export class MediathequeCard extends LitElement {
         ${sorted.length === 0
           ? html`<div class="empty-state">Aucun livre à rendre</div>`
           : html`<div class="book-grid">
-              ${sorted.map((loan) => renderTile(loan, () => this._openDetail(loan)))}
+              ${sorted.map((loan) =>
+                renderTile({
+                  loan,
+                  onClick: () => this._openDetail(loan),
+                  onToggleRead: () => this._toggleRead(loan),
+                })
+              )}
             </div>`}
         ${this._renderModals(cardId)}
       </ha-card>
@@ -552,7 +558,13 @@ export class MediathequeCard extends LitElement {
                     <span class="member-name">${member}</span>
                     <span class="member-count">${loans.length}</span>
                   </div>
-                  ${sorted.map((loan) => renderBookRow(loan, () => this._openDetail(loan)))}
+                  ${sorted.map((loan) =>
+                    renderBookRow({
+                      loan,
+                      onClick: () => this._openDetail(loan),
+                      onToggleRead: () => this._toggleRead(loan),
+                    })
+                  )}
                 </div>
               `;
             })}
@@ -569,6 +581,7 @@ export class MediathequeCard extends LitElement {
             onOverlayClick: this._onOverlayClick,
             onClose: this._closeDetail,
             onExtend: (): void => this._askExtend(this._detailLoan!),
+            onToggleRead: (): void => this._toggleRead(this._detailLoan!),
           })
         : nothing}
       ${this._confirmExtend
@@ -596,6 +609,32 @@ export class MediathequeCard extends LitElement {
   private _closeDetail = (): void => {
     this._detailLoan = null;
   };
+  private _toggleRead = (loan: Loan): void => {
+    const key = loan.read_key;
+    if (!key || !this._hass) return;
+    const next = !loan.read;
+
+    // Bascule optimiste de la fiche ouverte. `_detailLoan` est une capture du
+    // prêt au moment du clic, pas une vue sur les données : la mise à jour que
+    // pousse le coordinator remplace les prêts dans `hass`, mais laisse cette
+    // capture telle quelle. Sans cette ligne, le bouton de la fiche garderait
+    // son libellé d'avant jusqu'à la réouverture, alors que la tuile derrière
+    // aurait déjà basculé.
+    if (this._detailLoan && this._detailLoan.read_key === key) {
+      this._detailLoan = { ...this._detailLoan, read: next };
+    }
+
+    // Même traitement que la prolongation : Home Assistant affiche déjà sa
+    // notification d'erreur, et sans catch chaque échec laisse une promesse
+    // rejetée non gérée dans la console.
+    void this._hass
+      .callService('mediatheque_veauche', 'set_read', { read_key: key, read: next })
+      .catch((err: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error('[mediatheque-card] set_read a échoué', err);
+      });
+  };
+
   private _askExtend = (loan: Loan): void => {
     if (!loan.extend_url) return;
     this._confirmExtend = { loan };

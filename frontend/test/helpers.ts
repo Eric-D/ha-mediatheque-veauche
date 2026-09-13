@@ -52,6 +52,8 @@ export function loan(overrides: Partial<Loan> = {}): Loan {
     cover_url: null,
     isbn: null,
     emprunteur: 'Jean',
+    read: false,
+    read_key: 'id:123',
     ...overrides,
   };
 }

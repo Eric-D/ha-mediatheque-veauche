@@ -28,6 +28,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .dates import with_days_left
+from .read_status import ReadStatus, with_read_flags
 from .scraper import InvalidCredentialsError, MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,6 +127,19 @@ async def async_load_cache(hass: HomeAssistant, store: Store, username: str) -> 
     return cached
 
 
+def with_derived(data: dict, today: date, read_keys: set[str]) -> dict:
+    """Tous les champs dérivés, en un seul appel.
+
+    Les trois chemins qui servent des données — fetch réussi, repli sur cache,
+    pré-remplissage au démarrage — doivent appliquer **les mêmes** dérivations.
+    Les appeler une par une à chacun des trois endroits est précisément la
+    forme qui laisse un chemin en oublier une, en silence et sans que rien en
+    CI ne le voie : le seul symptôme serait un badge manquant sur le rendu qui
+    suit un redémarrage.
+    """
+    return with_read_flags(with_days_left(data, today), read_keys)
+
+
 class MediathequeDataSource:
     """Méthode de mise à jour du coordinator, et le cache qui va avec.
 
@@ -143,12 +157,17 @@ class MediathequeDataSource:
         store: Store,
         cached: dict,
         state: dict,
+        read_status: ReadStatus,
     ) -> None:
         self.hass = hass
         self.client = client
         self.store = store
         self.cached = cached
         self.state = state
+        # Requis, jamais optionnel : un défaut à None ferait servir un jeu de
+        # clés vide si l'appelant oubliait de le passer, donc aucun livre
+        # jamais marqué lu — sans erreur, sans log, et avec la CI au vert.
+        self.read_status = read_status
         self.coordinator: Any = None
 
     def _today(self) -> date:
@@ -166,7 +185,7 @@ class MediathequeDataSource:
             self.cached["data"] = raw
             self.cached["last_success"] = self.state["last_success"]
             await self.store.async_save(self.cached)
-            data = with_days_left(raw, self._today())
+            data = with_derived(raw, self._today(), self.read_status.keys)
             _LOGGER.info(
                 "Données récupérées: %d emprunts, %d à rendre cette semaine, %d en retard",
                 data.get("total", 0),
@@ -199,7 +218,7 @@ class MediathequeDataSource:
                 # Recalculé ici aussi : c'est le seul chemin où les données
                 # peuvent traverser un minuit sans nouveau scrape.
                 return {
-                    **with_days_left(base, self._today()),
+                    **with_derived(base, self._today(), self.read_status.keys),
                     "last_success": self.state["last_success"],
                     "fetch_ok": False,
                     "last_error_at": dt_util.utcnow().isoformat(),

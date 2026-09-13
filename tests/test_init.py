@@ -1,6 +1,7 @@
 """Tests pour __init__.py de l'intégration Médiathèque de Veauche."""
 from __future__ import annotations
 
+import datetime as _dt
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,13 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 import custom_components.mediatheque_veauche as integration
+import custom_components.mediatheque_veauche.read_status as read_status_module
 from custom_components.mediatheque_veauche import (
     _async_extend_loan,
+    _async_set_read,
     _loan_entries,
     _mark_loan_extended,
+    _mark_loans_read,
     _owns_loan,
     _select_entry,
 )
@@ -288,6 +292,7 @@ class _EntryRegistry:
 
 class _Hass:
     def __init__(self, entries):
+        self.data: dict = {}
         self.config_entries = _EntryRegistry(
             [
                 entry if isinstance(entry, _LoanEntry) else _LoanEntry(entry_id, entry)
@@ -560,7 +565,7 @@ class TestRemoveEntry:
     def test_removes_the_service_with_the_last_account(self):
         hass = _Hass({"ea": self._unloaded("ea")})
 
-        assert self._remove(hass, "ea") == ["extend_loan"]
+        assert self._remove(hass, "ea") == ["extend_loan", "set_read"]
 
     def test_an_account_in_error_does_not_keep_the_service_alive(self):
         """Le défaut que le dictionnaire global portait, et qu'un simple
@@ -576,7 +581,7 @@ class TestRemoveEntry:
             }
         )
 
-        assert self._remove(hass, "eb") == ["extend_loan"]
+        assert self._remove(hass, "eb") == ["extend_loan", "set_read"]
 
     def test_removing_an_entry_that_never_loaded(self):
         """Compte resté en erreur d'authentification : le compte valide garde
@@ -634,3 +639,238 @@ class TestRuntimeDataIsActuallyWired:
         """Le dictionnaire global ne sert plus qu'au drapeau de chemin statique."""
         for source in (self.INIT, self.SENSOR):
             assert "hass.data[DOMAIN][" not in source
+
+
+def _read_account(name, *loans):
+    """runtime_data dont le coordinator porte déjà les prêts drapeautés.
+
+    Les prêts arrivent au coordinator tels que `with_read_flags` les sert :
+    `read_key` et `read` y sont donc posés, comme sur les trois chemins de
+    service. Les fabriquer sans ces champs testerait une forme de données que
+    la production ne produit jamais.
+    """
+    return MediathequeRuntimeData(
+        client=_Client(name),
+        username=name,
+        coordinator=_RecordingCoordinator({
+            "membres": {
+                membre: [
+                    {"titre": titre, "read_key": key, "read": read}
+                    for titre, key, read in prets
+                ]
+                for membre, prets in loans
+            }
+        }),
+    )
+
+
+class _ReadStore:
+    """Le pan de Store qu'utilise ReadStatus, échouable à l'écriture."""
+
+    def __init__(self, fail_save=False):
+        self.saved: list[dict] = []
+        self.fail_save = fail_save
+
+    async def async_load(self):
+        return None
+
+    async def async_save(self, data):
+        if self.fail_save:
+            raise OSError("disque plein")
+        self.saved.append(data)
+
+
+def _with_read_store(hass, store):
+    """Installe un ReadStatus déjà chargé, pour court-circuiter le vrai Store.
+
+    `async_get_read_status` le retrouve par `setdefault` sans jamais construire
+    le sien.
+    """
+    status = read_status_module.ReadStatus(store)
+    status._loaded = True
+    hass.data[read_status_module.READ_STATUS_KEY] = status
+    return status
+
+
+class TestMarkLoansRead:
+    """Fonction pure : la copie, et le fait que tout le foyer bascule."""
+
+    def test_marks_every_member_holding_the_book(self):
+        """La portée est le foyer : deux membres qui ont emprunté le même titre
+        doivent voir le badge basculer ensemble. Ne marquer que le premier
+        laisserait la seconde tuile en arrière, sans explication."""
+        data = {
+            "membres": {
+                "Jean": [{"titre": "A", "read_key": "id:1", "read": False}],
+                "Luc": [{"titre": "A", "read_key": "id:1", "read": False}],
+            }
+        }
+
+        updated, titre = _mark_loans_read(data, "id:1", True)
+
+        assert [loan["read"] for loan in updated["membres"]["Jean"]] == [True]
+        assert [loan["read"] for loan in updated["membres"]["Luc"]] == [True]
+        assert titre == "A"
+
+    def test_leaves_the_other_books_alone(self):
+        data = {
+            "membres": {
+                "Jean": [
+                    {"titre": "A", "read_key": "id:1", "read": False},
+                    {"titre": "B", "read_key": "id:2", "read": False},
+                ]
+            }
+        }
+
+        updated, _ = _mark_loans_read(data, "id:1", True)
+
+        assert [loan["read"] for loan in updated["membres"]["Jean"]] == [True, False]
+
+    def test_returns_a_copy_never_a_mutation(self):
+        """Même raison que _mark_loan_extended : muter en place laisserait
+        l'ancien State référencer les mêmes dicts, donc aucun state_changed et
+        un badge qui n'apparaît qu'au cycle suivant."""
+        loan = {"titre": "A", "read_key": "id:1", "read": False}
+        data = {"membres": {"Jean": [loan]}}
+
+        _mark_loans_read(data, "id:1", True)
+
+        assert loan["read"] is False
+
+    def test_nothing_to_change_means_no_update(self):
+        """Pousser une copie identique ferait re-rendre la carte pour rien."""
+        data = {"membres": {"Jean": [{"titre": "A", "read_key": "id:1", "read": True}]}}
+
+        updated, titre = _mark_loans_read(data, "id:1", True)
+
+        assert updated is None
+        assert titre == "A", "le titre doit être trouvé même sans changement"
+
+    def test_an_absent_key_changes_nothing(self):
+        data = {"membres": {"Jean": [{"titre": "A", "read_key": "id:1", "read": False}]}}
+
+        assert _mark_loans_read(data, "id:9", True) == (None, None)
+
+    @pytest.mark.parametrize("membres", [None, "nope", 42])
+    def test_a_payload_without_members_is_survivable(self, membres):
+        assert _mark_loans_read({"membres": membres}, "id:1", True) == (None, None)
+
+    def test_a_corrupt_loan_does_not_break_the_others(self):
+        data = {
+            "membres": {
+                "Jean": ["bancal", {"titre": "A", "read_key": "id:1", "read": False}],
+                "Luc": "pas une liste",
+            }
+        }
+
+        updated, _ = _mark_loans_read(data, "id:1", True)
+
+        assert updated["membres"]["Jean"][1]["read"] is True
+
+
+class TestSetReadWiring:
+    """Le câblage : ce qui part sur le disque, et ce qui remonte à la carte."""
+
+    @staticmethod
+    def _run(coro):
+        import asyncio
+
+        return asyncio.run(coro)
+
+    def test_no_account_is_a_validation_error(self):
+        """Comme pour la prolongation : un message explicite plutôt qu'une
+        erreur inconnue avec une trace complète."""
+        hass = _Hass({})
+
+        with pytest.raises(ServiceValidationError):
+            self._run(_async_set_read(hass, "id:1", True))
+
+    def test_marks_across_every_account(self):
+        """L'état est global au foyer : aucune sélection de compte,
+        contrairement à la prolongation. Deux comptes détenant le même livre
+        basculent ensemble."""
+        a = _read_account("a", ("Jean", [("A", "id:1", False)]))
+        b = _read_account("b", ("Luc", [("A", "id:1", False)]))
+        hass = _Hass({"ea": a, "eb": b})
+        store = _ReadStore()
+        _with_read_store(hass, store)
+
+        self._run(_async_set_read(hass, "id:1", True))
+
+        assert a.coordinator.updates[-1]["membres"]["Jean"][0]["read"] is True
+        assert b.coordinator.updates[-1]["membres"]["Luc"][0]["read"] is True
+
+    def test_persists_the_key_and_the_title(self):
+        a = _read_account("a", ("Jean", [("Astérix", "id:1", False)]))
+        hass = _Hass({"ea": a})
+        store = _ReadStore()
+        _with_read_store(hass, store)
+
+        self._run(_async_set_read(hass, "id:1", True))
+
+        assert list(store.saved[-1]["entries"]) == ["id:1"]
+        assert store.saved[-1]["entries"]["id:1"]["titre"] == "Astérix"
+
+    def test_unmarking_removes_it_from_the_disk(self):
+        a = _read_account("a", ("Jean", [("Astérix", "id:1", True)]))
+        hass = _Hass({"ea": a})
+        store = _ReadStore()
+        status = _with_read_store(hass, store)
+        self._run(status.async_set("id:1", True, _dt.datetime(2026, 9, 13, tzinfo=_dt.UTC)))
+        store.saved.clear()
+
+        self._run(_async_set_read(hass, "id:1", False))
+
+        assert store.saved[-1] == {"entries": {}}
+        assert a.coordinator.updates[-1]["membres"]["Jean"][0]["read"] is False
+
+    def test_a_returned_book_is_still_recorded(self):
+        """On peut marquer lu un livre qu'on vient de rendre : aucun prêt en
+        cours ne porte alors la clé, mais le marquage doit survivre pour le
+        prochain emprunt — c'est tout l'intérêt de garder l'information."""
+        a = _read_account("a", ("Jean", [("A", "id:1", False)]))
+        hass = _Hass({"ea": a})
+        store = _ReadStore()
+        _with_read_store(hass, store)
+
+        self._run(_async_set_read(hass, "id:9", True))
+
+        assert list(store.saved[-1]["entries"]) == ["id:9"]
+        assert a.coordinator.updates == []
+
+    def test_an_unchanged_account_is_not_pushed(self):
+        """Pousser une copie identique ferait re-rendre la carte pour rien."""
+        a = _read_account("a", ("Jean", [("A", "id:1", False)]))
+        b = _read_account("b", ("Luc", [("B", "id:2", False)]))
+        hass = _Hass({"ea": a, "eb": b})
+        _with_read_store(hass, _ReadStore())
+
+        self._run(_async_set_read(hass, "id:1", True))
+
+        assert len(a.coordinator.updates) == 1
+        assert b.coordinator.updates == []
+
+    def test_a_failed_write_does_not_move_the_card(self):
+        """Sans ça, la carte afficherait le badge alors que rien n'est sur le
+        disque, et le prochain redémarrage le ferait disparaître sans
+        explication."""
+        a = _read_account("a", ("Jean", [("A", "id:1", False)]))
+        hass = _Hass({"ea": a})
+        _with_read_store(hass, _ReadStore(fail_save=True))
+
+        with pytest.raises(HomeAssistantError):
+            self._run(_async_set_read(hass, "id:1", True))
+
+        assert a.coordinator.updates == []
+
+    def test_an_account_without_data_yet_is_skipped(self):
+        """Démarrage à froid : le coordinator n'a pas encore de données. Le
+        marquage doit tout de même atteindre le disque."""
+        froid = MediathequeRuntimeData(client=_Client("froid"), username="froid")
+        hass = _Hass({"ea": froid})
+        store = _ReadStore()
+        _with_read_store(hass, store)
+
+        self._run(_async_set_read(hass, "id:1", True))
+
+        assert list(store.saved[-1]["entries"]) == ["id:1"]

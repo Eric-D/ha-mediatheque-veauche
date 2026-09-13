@@ -15,10 +15,12 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.start import async_at_started
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
 from .coordinator import MediathequeConfigEntry, MediathequeRuntimeData
 from .migration import async_migrate_unique_ids
+from .read_status import READ_STATUS_KEY, async_get_read_status
 from .scraper import MediathequeVeaucheClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,6 +43,11 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 SERVICE_EXTEND_LOAN = "extend_loan"
 SERVICE_EXTEND_SCHEMA = vol.Schema({
     vol.Required("extend_url"): cv.url,
+})
+SERVICE_SET_READ = "set_read"
+SERVICE_SET_READ_SCHEMA = vol.Schema({
+    vol.Required("read_key"): cv.string,
+    vol.Required("read"): cv.boolean,
 })
 
 
@@ -174,6 +181,85 @@ async def _async_extend_loan(hass: HomeAssistant, extend_url: str) -> None:
                 "compte %s : la carte ne se mettra à jour qu'au prochain cycle",
                 entry_id,
             )
+
+
+def _mark_loans_read(data: dict, read_key: str, read: bool) -> tuple[dict | None, str | None]:
+    """Copie de `data` où tout prêt portant cette clé est (dé)marqué lu.
+
+    Renvoie aussi le titre rencontré, pour que le fichier de `.storage` reste
+    lisible à l'œil : les clés `id:` sont des identifiants de catalogue opaques.
+
+    Tous les prêts portant la clé sont marqués, pas seulement le premier : la
+    portée étant le foyer, deux membres qui ont emprunté le même titre doivent
+    voir le badge basculer ensemble. Copie et non mutation, même raison que
+    `_mark_loan_extended`.
+    """
+    membres = data.get("membres")
+    if not isinstance(membres, dict):
+        return None, None
+
+    updated: dict | None = None
+    titre: str | None = None
+    for membre, loans in membres.items():
+        if not isinstance(loans, list):
+            continue
+        for index, loan in enumerate(loans):
+            if not isinstance(loan, dict) or loan.get("read_key") != read_key:
+                continue
+            if titre is None and isinstance(loan.get("titre"), str):
+                titre = loan["titre"]
+            if loan.get("read") == read:
+                continue
+            if updated is None:
+                updated = copy.deepcopy(data)
+            updated["membres"][membre][index]["read"] = read
+    return updated, titre
+
+
+async def _async_set_read(hass: HomeAssistant, read_key: str, read: bool) -> None:
+    """Marque un livre lu ou non lu, sur tous les comptes à la fois.
+
+    Au niveau module et non dans une closure, pour la raison donnée à
+    `_async_extend_loan` : c'est le seul moyen de tester le câblage.
+
+    Aucune sélection de compte ici, contrairement à la prolongation : l'état de
+    lecture est global au foyer, donc le même livre emprunté par deux membres
+    bascule partout. C'est aussi pourquoi l'écriture disque a lieu même si
+    aucun prêt en cours ne porte la clé — on peut marquer lu un livre qu'on
+    vient de rendre, et le marquage doit survivre pour le prochain emprunt.
+    """
+    entries = _loan_entries(hass)
+    if not entries:
+        raise ServiceValidationError(
+            "Aucun compte médiathèque configuré pour enregistrer l'état de lecture"
+        )
+
+    marked: list[tuple[Any, dict]] = []
+    titre: str | None = None
+    for _entry_id, entry_data in entries:
+        coordinator = entry_data.coordinator
+        if not coordinator or not coordinator.data:
+            continue
+        updated, found = _mark_loans_read(coordinator.data, read_key, read)
+        if titre is None:
+            titre = found
+        if updated is not None:
+            marked.append((coordinator, updated))
+
+    status = await async_get_read_status(hass)
+    try:
+        await status.async_set(read_key, read, dt_util.utcnow(), titre)
+    except Exception as err:
+        # Avant toute mise à jour des coordinators : sans ça la carte
+        # afficherait le badge alors que rien n'est sur le disque, et le
+        # prochain redémarrage le ferait disparaître sans explication.
+        _LOGGER.error("Écriture de l'état « lu » impossible: %s", err)
+        raise HomeAssistantError(
+            f"L'enregistrement de l'état de lecture a échoué : {err}"
+        ) from err
+
+    for coordinator, updated in marked:
+        coordinator.async_set_updated_data(updated)
 
 
 def _get_lovelace_resources(hass: HomeAssistant):
@@ -322,6 +408,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: MediathequeConfigEntry) 
             DOMAIN, SERVICE_EXTEND_LOAN, handle_extend_loan, schema=SERVICE_EXTEND_SCHEMA
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_READ):
+        async def handle_set_read(call: ServiceCall) -> None:
+            """Point d'entrée du service ; la logique est testable au niveau module."""
+            await _async_set_read(hass, call.data["read_key"], call.data["read"])
+
+        hass.services.async_register(
+            DOMAIN, SERVICE_SET_READ, handle_set_read, schema=SERVICE_SET_READ_SCHEMA
+        )
+
+    # Avant le forward vers la plateforme sensor, qui en a besoin pour servir
+    # son pré-remplissage depuis le cache : sans ça le premier rendu après un
+    # redémarrage n'aurait aucun badge « Lu », jusqu'au premier fetch.
+    await async_get_read_status(hass)
+
     # Avant la création des entités : leurs identifiants uniques dérivaient du
     # login, donc en changer aurait créé cinq entités neuves et orpheliné les
     # anciennes. Idempotente, donc rejouée à chaque démarrage.
@@ -405,7 +505,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: MediathequeConfigEntry)
     # dans la collection serait de toute façon fragile : HA a inversé l'ordre
     # en 2025.3 — auparavant l'entrée était encore listée ici, depuis elle en
     # est déjà sortie.
-    if not _loan_entries(hass) and hass.services.has_service(
-        DOMAIN, SERVICE_EXTEND_LOAN
-    ):
-        hass.services.async_remove(DOMAIN, SERVICE_EXTEND_LOAN)
+    if _loan_entries(hass):
+        return
+    for service in (SERVICE_EXTEND_LOAN, SERVICE_SET_READ):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)
+    # L'état de lecture reste sur le disque : supprimer le compte n'est pas
+    # renoncer à savoir ce qu'on a lu, et le reconfigurer doit retrouver ses
+    # badges. Seul le singleton en mémoire part, sans quoi un ReadStatus
+    # rattaché à l'ancien Store survivrait au retrait.
+    hass.data.pop(READ_STATUS_KEY, None)
