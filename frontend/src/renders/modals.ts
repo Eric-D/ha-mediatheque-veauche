@@ -4,6 +4,7 @@ import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
 
 import { generateCode39Svg } from '../helpers/barcode.js';
 import type { Loan } from '../types.js';
+import { canMarkRead, readLabel } from './book.js';
 import { PLACEHOLDER_SVG, onCoverError } from './shared.js';
 
 export interface DetailModalOptions {
@@ -11,6 +12,7 @@ export interface DetailModalOptions {
   onOverlayClick: (e: Event) => void;
   onClose: () => void;
   onExtend: () => void;
+  onToggleRead: () => void;
 }
 
 export function renderDetailModal({
@@ -18,6 +20,7 @@ export function renderDetailModal({
   onOverlayClick,
   onClose,
   onExtend,
+  onToggleRead,
 }: DetailModalOptions): TemplateResult {
   const cover = loan.cover_url || PLACEHOLDER_SVG;
   return html`
@@ -29,8 +32,20 @@ export function renderDetailModal({
         <img class="mc-modal-cover" src=${cover} alt="" @error=${onCoverError} />
         <div class="mc-modal-body">
           ${loan.isbn ? html`<div class="mc-modal-isbn">ISBN : ${loan.isbn}</div>` : nothing}
+          ${loan.read
+            ? html`<div class="mc-modal-read">✓ Lu</div>`
+            : nothing}
           <div class="mc-modal-actions">
             <button class="mc-modal-btn mc-modal-btn-close" @click=${onClose}>Fermer</button>
+            ${canMarkRead(loan)
+              ? html`<button
+                  class="mc-modal-btn mc-modal-btn-read ${loan.read ? 'is-read' : ''}"
+                  aria-pressed=${loan.read ? 'true' : 'false'}
+                  @click=${onToggleRead}
+                >
+                  ${readLabel(loan)}
+                </button>`
+              : nothing}
             ${loan.can_extend
               ? html`<button class="mc-modal-btn mc-modal-btn-extend" @click=${onExtend}>
                   Prolonger

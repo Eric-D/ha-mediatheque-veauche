@@ -13,6 +13,7 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 - Filtrage des livres par statut d'urgence (retard, urgent, bientôt, etc.)
 - Code-barres de la carte de bibliothèque
 - Prolongation des emprunts depuis la carte
+- Marquage des livres lus, avec badge et retour en arrière
 - Intervalle de mise à jour configurable
 - Compatible HACS
 
@@ -163,7 +164,9 @@ Les autres pannes — site injoignable, portail en maintenance, page de connexio
         "extend_url": "https://mediatheque.veauche.fr/...",
         "cover_url": "https://mediatheque.veauche.fr/images/covers/...",
         "isbn": "978-2-07-036294-0",
-        "emprunteur": "Jean"
+        "emprunteur": "Jean",
+        "read": false,
+        "read_key": "id:12345"
       }
     ],
     "Lucas": [...]
@@ -174,6 +177,39 @@ Les autres pannes — site injoignable, portail en maintenance, page de connexio
 `last_success` et `fetch_ok` sont également présents sur `sensor.emprunts_a_rendre_cette_semaine` et `sensor.emprunts_en_retard`, avec `card_id`. `fetch_ok: false` signifie que la dernière synchronisation a échoué et que les données affichées viennent du cache : si elles datent d'un jour antérieur, la carte affiche un bandeau d'avertissement car les délais `days_left` sont alors décalés.
 
 `days_left` vaut `null` quand la date d'échéance est illisible sur le site source. La carte affiche alors le badge `unknown` plutôt qu'un délai inventé.
+
+## Livres lus
+
+Chaque livre porte un bouton de bascule : la pastille en bas à gauche de la
+tuile en mode `covers`, le bouton rond en bout de ligne en mode `list`, et
+« Marquer comme lu » dans la fiche détaillée. Un livre marqué porte un badge
+« ✓ Lu » et un liseré vert.
+
+L'état est **partagé par tout le foyer**, pas par membre : un livre que deux
+enfants ont emprunté bascule pour les deux. Il est conservé après le retour du
+livre, pendant deux ans — réemprunter un titre déjà lu réaffiche donc le badge,
+ce qui évite de le relire par mégarde.
+
+Il est stocké côté Home Assistant, dans `.storage`, et non dans le navigateur :
+marquer un livre sur la tablette le marque aussi sur le téléphone, et une
+automatisation peut le lire.
+
+### Service `mediatheque_veauche.set_read`
+
+| Champ      | Type    | Description                                            |
+| ---------- | ------- | ------------------------------------------------------ |
+| `read_key` | string  | La clé du livre, lue dans l'attribut `read_key` du prêt |
+| `read`     | boolean | `true` pour marquer lu, `false` pour revenir en arrière |
+
+La carte le renseigne seule. `read_key` dérive de l'identifiant du catalogue
+(`id:12345`), qui survit au retour puis au réemprunt ; il retombe sur le titre
+normalisé (`titre:le petit prince`) pour les rares livres dont le titre n'est
+pas un lien. Un livre sans aucune clé exploitable n'affiche pas le contrôle,
+plutôt qu'un bouton dont le clic échouerait.
+
+`read` et `read_key` sont dérivés au moment de servir, comme `days_left` : le
+cache disque n'en garde aucune trace, sinon une journée d'indisponibilité du
+portail resservirait l'état de lecture de la veille.
 
 ## Licence
 

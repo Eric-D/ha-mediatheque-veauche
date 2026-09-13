@@ -9,3 +9,27 @@ extend_loan:
       example: "https://mediatheque.veauche.fr/index.php/mon-profil?..."
       selector:
         text:
+
+set_read:
+  name: Marquer un livre comme lu
+  description: >-
+    Enregistre qu'un livre a été lu, ou annule ce marquage. L'état est partagé
+    par tout le foyer et survit au retour du livre : le réemprunter réaffiche
+    le badge.
+  fields:
+    read_key:
+      name: Clé du livre
+      description: >-
+        La clé fournie par le capteur (attribut read_key du prêt). La carte la
+        renseigne seule ; à la main, recopiez-la depuis les attributs.
+      required: true
+      example: "id:12345"
+      selector:
+        text:
+    read:
+      name: Lu
+      description: Coché pour marquer lu, décoché pour revenir en arrière.
+      required: true
+      example: true
+      selector:
+        boolean:

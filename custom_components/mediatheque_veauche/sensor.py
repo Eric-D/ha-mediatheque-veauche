@@ -28,9 +28,10 @@ from .coordinator import (
     MediathequeConfigEntry,
     MediathequeDataSource,
     async_load_cache,
+    with_derived,
 )
-from .dates import with_days_left
 from .migration import build_unique_id
+from .read_status import async_get_read_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ async def async_setup_entry(
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_cache")
     cached = await async_load_cache(hass, store, username)
     state = {"last_success": cached.get("last_success")}
-    source = MediathequeDataSource(hass, client, store, cached, state)
+    read_status = await async_get_read_status(hass)
+    source = MediathequeDataSource(hass, client, store, cached, state, read_status)
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -84,7 +86,7 @@ async def async_setup_entry(
         # démarrage de HA dont le cache a plus de deux heures, pendant tout le
         # temps du premier refresh.
         coordinator.async_set_updated_data({
-            **with_days_left(cached["data"], dt_util.now().date()),
+            **with_derived(cached["data"], dt_util.now().date(), read_status.keys),
             "last_success": state["last_success"],
         })
 

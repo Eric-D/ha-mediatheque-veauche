@@ -106,6 +106,25 @@ export const cardStyles = css`
     margin-top: 4px;
     flex-wrap: wrap;
   }
+  .book-row-read {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+    background: var(--secondary-background-color, #f0f0f0);
+    color: var(--secondary-text-color);
+    font-size: 0.85em;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .book-row-read.is-read {
+    background: #2e7d32;
+    border-color: #2e7d32;
+    color: #fff;
+  }
   .badge-days {
     font-size: 0.75em;
     padding: 2px 8px;
@@ -152,6 +171,35 @@ export const cardStyles = css`
   }
   .book-tile:active {
     transform: scale(0.96);
+  }
+  /* Le liseré vert doit rester lisible sur une couverture claire comme sur
+     une sombre : posé en inset, il mord sur l'image plutôt que sur le fond de
+     la tuile, que la couverture recouvre entièrement. */
+  .book-tile.is-read {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.15),
+      inset 0 0 0 2px #2e7d32;
+  }
+  .book-tile-read {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 0.72em;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.45);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+  .book-tile-read.is-read {
+    background: #2e7d32;
   }
   .book-tile-cover {
     width: 100%;

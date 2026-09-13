@@ -58,6 +58,12 @@ export interface Loan {
   cover_url?: string | null;
   isbn?: string | null;
   emprunteur?: string | null;
+  // Dérivés côté Python au moment de servir, comme days_left : jamais écrits
+  // dans le cache disque. `read_key` est calculé par l'intégration et renvoyé
+  // tel quel au service — surtout pas recalculé ici, la normalisation du titre
+  // de repli ne se traduit pas fidèlement en TypeScript.
+  read?: boolean;
+  read_key?: string | null;
 }
 
 export interface MembersMap {

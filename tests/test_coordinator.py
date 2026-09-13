@@ -104,10 +104,19 @@ def _payload(*due_dates):
     }
 
 
-def _source(client, cached=None, last_success=None):
+class _ReadStatus:
+    """Le pan de ReadStatus qu'utilise la source : les clés, relues à chaque
+    service. Attribut et non valeur figée, pour qu'un test puisse marquer un
+    livre entre deux cycles."""
+
+    def __init__(self, keys=()):
+        self.keys = set(keys)
+
+
+def _source(client, cached=None, last_success=None, read_keys=()):
     return MediathequeDataSource(
         _Hass(), client, _Store(), cached if cached is not None else {},
-        {"last_success": last_success},
+        {"last_success": last_success}, _ReadStatus(read_keys),
     )
 
 
@@ -386,3 +395,71 @@ class TestLegacyCacheTakeover:
         self._patch_store(monkeypatch, _Broken())
 
         assert _run(coordinator_module.async_take_over_legacy_cache(_Hass(), "x")) == {}
+
+
+class TestReadFlags:
+    """Les drapeaux « lu » doivent suivre les mêmes chemins que days_left.
+
+    Les trois chemins qui servent des données — fetch réussi, repli sur cache,
+    pré-remplissage au démarrage — doivent appliquer les mêmes dérivations. Les
+    deux premiers sont testables ici ; le troisième vit dans `sensor.py`, non
+    importable sous les mocks, et n'est couvert que par `with_derived` étant le
+    seul appel possible.
+    """
+
+    def test_a_successful_fetch_carries_the_flags(self):
+        source = _source(_Client(_payload("2024-03-15")), read_keys={"titre:l0"})
+
+        data = _run(source.async_update())
+
+        assert data["membres"]["Jean"][0]["read"] is True
+        assert data["membres"]["Jean"][0]["read_key"] == "titre:l0"
+
+    def test_an_unmarked_book_is_served_as_unread(self):
+        source = _source(_Client(_payload("2024-03-15")))
+
+        data = _run(source.async_update())
+
+        assert data["membres"]["Jean"][0]["read"] is False
+
+    def test_the_disk_cache_keeps_no_read_flag(self):
+        """Y figer `read` le rendrait faux dès le marquage suivant, et une
+        journée d'indisponibilité du portail resservirait l'état de lecture de
+        la veille sans le dire. Même raison que days_left."""
+        store = _Store()
+        source = MediathequeDataSource(
+            _Hass(), _Client(_payload("2024-03-15")), store, {},
+            {"last_success": None}, _ReadStatus({"titre:l0"}),
+        )
+
+        _run(source.async_update())
+
+        written = store.saved[-1]["data"]["membres"]["Jean"][0]
+        assert "read" not in written
+        assert "read_key" not in written
+
+    def test_the_cache_fallback_carries_the_flags(self):
+        """Seul chemin où les données peuvent traverser un marquage sans
+        nouveau scrape : le badge doit quand même apparaître."""
+        cached = {"data": _payload("2024-03-15"), "last_success": "hier"}
+        source = _source(_Client(error=RuntimeError("portail HS")), cached=cached,
+                         read_keys={"titre:l0"})
+
+        data = _run(source.async_update())
+
+        assert data["fetch_ok"] is False
+        assert data["membres"]["Jean"][0]["read"] is True
+
+    def test_a_key_marked_between_two_cycles_is_picked_up(self):
+        """La source relit `keys` à chaque service plutôt que de les capturer à
+        la construction : sinon marquer un livre n'aurait d'effet qu'au
+        redémarrage suivant."""
+        status = _ReadStatus()
+        source = MediathequeDataSource(
+            _Hass(), _Client(_payload("2024-03-15")), _Store(), {},
+            {"last_success": None}, status,
+        )
+
+        assert _run(source.async_update())["membres"]["Jean"][0]["read"] is False
+        status.keys.add("titre:l0")
+        assert _run(source.async_update())["membres"]["Jean"][0]["read"] is True

@@ -86,6 +86,22 @@ export const modalStyles = css`
     background: #1565c0;
     color: #fff;
   }
+  .mc-modal-btn-read {
+    background: var(--secondary-background-color, #e0e0e0);
+    color: var(--primary-text-color);
+    border: 1px solid #2e7d32;
+  }
+  .mc-modal-btn-read.is-read {
+    background: #2e7d32;
+    border-color: #2e7d32;
+    color: #fff;
+  }
+  .mc-modal-read {
+    margin-top: 8px;
+    font-size: 0.8em;
+    font-weight: 600;
+    color: #2e7d32;
+  }
   .mc-confirm-dialog {
     background: var(--card-background-color, #fff);
     border-radius: 12px;
