@@ -1,4 +1,4 @@
-export const MEDIATHEQUE_CARD_VERSION = '4.2.0';
+export const MEDIATHEQUE_CARD_VERSION = '4.3.0';
 
 export function logBanner(): void {
   // console volontaire : c'est la convention des cartes Lovelace, et le bandeau
