@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 
 import {
   badgeTypeFor,
+  barcodeLabel,
   carouselBadge,
   coverWidth,
   renderCarousel,
@@ -240,9 +241,11 @@ describe('renderCarousel', () => {
       tiles(host)[0]!.getAttribute('aria-label'),
       'Astérix — Lucas — 25 sept.'
     );
+    // Le compteur fait partie du libellé : la bulle étant aria-hidden, c'est
+    // le seul endroit où un lecteur d'écran l'entend.
     assert.equal(
       host.querySelector('.mc-car-barcode')!.getAttribute('aria-label'),
-      'Afficher la carte de bibliothèque'
+      'Afficher la carte de bibliothèque — 1 livre'
     );
     // Le badge répéterait une information déjà portée par l'aria-label.
     assert.equal(host.querySelector('.mc-car-badge')!.getAttribute('aria-hidden'), 'true');
@@ -254,6 +257,59 @@ describe('renderCarousel', () => {
     });
 
     assert.equal(tiles(host)[0]!.getAttribute('aria-label'), 'Seul — 25 sept.');
+  });
+});
+
+describe('compteur sur le bouton code-barres', () => {
+  test('la bulle porte le nombre de livres affichés', () => {
+    const host = carousel({
+      loans: [loan({ titre: 'A' }), loan({ titre: 'B' }), loan({ titre: 'C' })],
+    });
+
+    assert.equal(text(host, '.mc-car-count'), '3');
+  });
+
+  test('le compteur suit le filtre, pas le total du capteur', () => {
+    // La bande ne montre que les prêts reçus : compter autre chose ferait
+    // mentir la bulle dès qu'un filtre `badges` est posé.
+    const host = carousel({ loans: [loan({ titre: 'seul' })] });
+
+    assert.equal(text(host, '.mc-car-count'), '1');
+  });
+
+  test('zéro livre : pas de bulle', () => {
+    // « 0 » serait du bruit à côté du message « Aucun livre à afficher ».
+    const host = carousel({ loans: [] });
+
+    assert.equal(host.querySelector('.mc-car-count'), null);
+    assert.ok(host.querySelector('.mc-car-barcode'), 'le bouton doit rester');
+  });
+
+  test('la bulle est dans le bouton, pas à côté', () => {
+    // Posée ailleurs, elle ne suivrait pas le bouton et flotterait sur la
+    // bande au premier changement de largeur.
+    const host = carousel({ loans: [loan()] });
+
+    assert.ok(host.querySelector('.mc-car-barcode .mc-car-count'));
+  });
+
+  test('le compteur est annoncé par le bouton, pas par la bulle', () => {
+    // Un lecteur d'écran qui lirait la bulle seule dirait « 3 » sans dire de
+    // quoi.
+    const host = carousel({ loans: [loan({ titre: 'A' }), loan({ titre: 'B' })] });
+
+    assert.equal(host.querySelector('.mc-car-count')!.getAttribute('aria-hidden'), 'true');
+    assert.match(
+      host.querySelector('.mc-car-barcode')!.getAttribute('aria-label') ?? '',
+      /2 livres$/
+    );
+  });
+
+  test('le pluriel est correct', () => {
+    // « 1 livres » sur une carte qu'on lit tous les jours finit par se voir.
+    assert.equal(barcodeLabel(1), 'Afficher la carte de bibliothèque — 1 livre');
+    assert.equal(barcodeLabel(2), 'Afficher la carte de bibliothèque — 2 livres');
+    assert.equal(barcodeLabel(0), 'Afficher la carte de bibliothèque');
   });
 });
 

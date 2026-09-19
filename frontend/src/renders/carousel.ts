@@ -121,6 +121,20 @@ export function sortForCarousel(loans: Loan[]): Loan[] {
   );
 }
 
+/** Libellé du bouton code-barres, compteur compris.
+
+    Le compteur est une bulle `aria-hidden` : un lecteur d'écran qui
+    l'annoncerait séparément dirait « 3 » sans dire de quoi. Il est donc porté
+    par le libellé du bouton, seul endroit où il a un sens.
+
+    Le pluriel est explicite : « 1 livres » sur une carte qu'on lit tous les
+    jours finit par se voir. */
+export function barcodeLabel(count: number): string {
+  const base = 'Afficher la carte de bibliothèque';
+  if (count <= 0) return base;
+  return `${base} — ${count} livre${count > 1 ? 's' : ''}`;
+}
+
 export interface CarouselOptions {
   loans: Loan[];
   cardId: string;
@@ -184,10 +198,13 @@ export function renderCarousel({
         ? html`<button
             class="mc-car-barcode"
             style="height:${coverHeight}px"
-            aria-label="Afficher la carte de bibliothèque"
+            aria-label=${barcodeLabel(sorted.length)}
             @click=${onBarcode}
           >
             <ha-icon icon="mdi:barcode"></ha-icon>
+            ${sorted.length > 0
+              ? html`<span class="mc-car-count" aria-hidden="true">${sorted.length}</span>`
+              : nothing}
           </button>`
         : nothing}
     </div>

@@ -157,8 +157,12 @@ couverture :
 | Non prolongeable | `N j` sur violet, seulement au-delà de 7 jours : en deçà, l'urgence garde sa couleur |
 | Date illisible | `?` sur gris |
 
-Sans `card_id`, la tuile code-barres disparaît et la bande occupe toute la
-largeur. Sans aucun livre à afficher, un message remplace la bande mais la tuile
+Le bouton code-barres porte une **bulle** avec le nombre de livres affichés —
+ceux qui restent après le filtre `badges`, pas le total du capteur. Elle
+disparaît quand il n'y en a aucun, le message le disant déjà.
+
+Sans `card_id`, la tuile code-barres disparaît — et sa bulle avec elle — et la
+bande occupe toute la largeur. Sans aucun livre à afficher, un message remplace la bande mais la tuile
 code-barres reste — c'est au moment d'emprunter qu'on en a besoin.
 
 ## Identifiants refusés
