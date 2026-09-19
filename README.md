@@ -60,9 +60,13 @@ Type : Module JavaScript
 |-----------|--------|-----------------|---------------------------------------------------------------|
 | `entity`  | string | **obligatoire** | Entité sensor à utiliser                                      |
 | `title`   | string | *(auto)*        | Titre personnalisé de la carte                                |
-| `mode`    | string | `list`          | `list` (groupée par membre) ou `covers` (grille de couvertures à rendre)   |
+| `mode`    | string | `list`          | `list` (groupée par membre), `covers` (grille de couvertures) ou `carousel` (bande basse) |
 | `badges`  | list   | *(tous)*        | Filtre les livres par type de statut                          |
 | `card_id` | string | *(auto)*        | Identifiant carte pour le code-barres                         |
+| `cover_height` | int | `76`           | Mode `carousel` : hauteur des couvertures en px (56–120). La largeur suit le ratio du livre |
+| `hide_ok_badges` | bool | `false`      | Mode `carousel` : masque le badge des livres à plus de 7 jours |
+
+`title` est **sans effet en mode `carousel`**, qui n'a pas d'en-tête.
 
 #### Utilisation de base
 
@@ -115,6 +119,47 @@ mode: covers
 Combinable avec `badges` pour filtrer (ex. ne montrer que les retards et urgents).
 
 > **Compat** : les anciens noms `all` et `grid` sont normalisés silencieusement vers `list` et `covers`. Le mode `due` (cassé) a été retiré en v3.2.0.
+
+#### Mode `carousel` (bande de couvertures)
+
+Une bande horizontale défilante des couvertures, triée par échéance, **sans
+en-tête**, avec à droite un bouton fixe qui ouvre le code-barres de la carte de
+bibliothèque. Conçu pour un tableau de bord mural où la hauteur est la ressource
+rare : une centaine de pixels, contre plus du double pour le mode `covers`.
+
+```yaml
+type: custom:mediatheque-card
+entity: sensor.emprunts_mediatheque
+mode: carousel
+# cover_height: 76
+# hide_ok_badges: false
+```
+
+Le défilement est natif : au doigt sur tablette, à la molette horizontale sur
+desktop. Aucune barre de défilement n'est affichée ; la dernière couverture est
+volontairement coupée quand il y en a plus que la largeur n'en montre, ce qui
+signale qu'on peut faire défiler.
+
+Tap sur une couverture → fiche détaillée (titre, ISBN, prolonger, marquer lu).
+La bascule « lu » n'est pas sur la vignette, trop petite pour qu'on la vise sans
+se tromper : elle reste dans la fiche. Un livre lu porte un liseré vert.
+
+Les badges reprennent les seuils des autres modes, avec une palette plus dense —
+fonds pleins et texte clair, un pastel de 10 px ne se détachant pas d'une
+couverture :
+
+| Statut | Badge |
+|---|---|
+| En retard | `Retard` sur rouge |
+| À rendre aujourd'hui | `Auj.` sur orange |
+| 1 à 7 jours | `N j` sur orange puis jaune |
+| Plus de 7 jours | `N j` sur vert — masquable avec `hide_ok_badges` |
+| Non prolongeable | `N j` sur violet, seulement au-delà de 7 jours : en deçà, l'urgence garde sa couleur |
+| Date illisible | `?` sur gris |
+
+Sans `card_id`, la tuile code-barres disparaît et la bande occupe toute la
+largeur. Sans aucun livre à afficher, un message remplace la bande mais la tuile
+code-barres reste — c'est au moment d'emprunter qu'on en a besoin.
 
 ## Identifiants refusés
 

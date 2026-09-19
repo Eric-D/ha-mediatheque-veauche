@@ -3,7 +3,7 @@ import { html, nothing, type TemplateResult } from 'lit';
 
 import { getDaysChip } from '../helpers/days-chip.js';
 import type { Loan } from '../types.js';
-import { PLACEHOLDER_SVG, onCoverError } from './shared.js';
+import { renderCoverImage } from './shared.js';
 
 export interface BookOptions {
   loan: Loan;
@@ -57,7 +57,6 @@ function renderReadPill(loan: Loan, onToggleRead: () => void): TemplateResult {
 
 export function renderTile({ loan, onClick, onToggleRead }: BookOptions): TemplateResult {
   const chip = getDaysChip(loan.days_left);
-  const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
   const days = loan.days_left;
   const tileLabel =
     days === null || days === undefined
@@ -74,13 +73,7 @@ export function renderTile({ loan, onClick, onToggleRead }: BookOptions): Templa
       title="${loan.titre}${loan.emprunteur ? ` — ${loan.emprunteur}` : ''}"
       @click=${onClick}
     >
-      <img
-        class="book-tile-cover"
-        src=${coverSrc}
-        alt=""
-        loading="lazy"
-        @error=${onCoverError}
-      />
+      ${renderCoverImage(loan.cover_url, 'book-tile-cover')}
       <span
         class="book-tile-badge"
         style="color:${chip.color};background:${chip.bg}"
@@ -102,18 +95,11 @@ export function renderTile({ loan, onClick, onToggleRead }: BookOptions): Templa
 
 export function renderBookRow({ loan, onClick, onToggleRead }: BookOptions): TemplateResult {
   const chip = getDaysChip(loan.days_left);
-  const coverSrc = loan.cover_url || PLACEHOLDER_SVG;
 
   return html`
     <div class="book-row">
       <div class="book-cover-wrapper" @click=${onClick}>
-        <img
-          class="book-cover"
-          src=${coverSrc}
-          alt=""
-          loading="lazy"
-          @error=${onCoverError}
-        />
+        ${renderCoverImage(loan.cover_url, 'book-cover')}
       </div>
       <div class="book-info">
         <div class="book-title" title=${loan.titre}>${loan.titre}</div>

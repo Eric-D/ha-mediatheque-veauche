@@ -109,7 +109,9 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
 - **Jamais `unsafeHTML` sur du contenu venant du capteur.** Il n'y en a aucun.
   Le seul `unsafeSVG` (`card.ts`, `_renderBarcodeModal`) reçoit la sortie de `generateCode39Svg`,
   dont l'entrée vient pourtant bien du capteur : `cardId` est calculé dans les
-  deux modes de rendu, `_renderList` — le mode par défaut — et `_renderCovers`. Ce qui rend
+  trois modes de rendu, `_renderList` — le mode par défaut —, `_renderCovers` et
+  `_renderCarousel`. Chaque mode neuf doit le calculer : l'oublier fait
+  disparaître le bouton code-barres sans autre symptôme. Ce qui rend
   l'ensemble sûr tient à **une seule ligne** : `helpers/barcode.ts` filtre, dans `generateCode39Svg`, par table
   blanche, et tout ce qui atteint la chaîne SVG ensuite est un entier calculé.
   C'est cette ligne qu'une refactorisation cassera sans s'en apercevoir.
@@ -132,6 +134,16 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   être ré-évalué au retour de veille.
 - **`window.customCards.push`** (fin de module de `card.ts`) : nécessaire au sélecteur
   de cartes. Rien en CI ne détecterait sa suppression.
+- **Le mode `carousel` n'a pas d'en-tête, et `_renderCarousel` ne reçoit pas
+  `title`** (`renders/carousel.ts`). Le paramètre n'est pas pris pour être
+  ignoré : le recevoir inviterait à l'afficher « pour faire bien », alors que le
+  mode existe précisément pour économiser la hauteur qu'un en-tête coûterait.
+  Sa bande défile en CSS natif (`overflow-x` + `scroll-snap`), sans librairie —
+  invariant « aucune dépendance externe ». Pas d'ombre portée sur ses tuiles :
+  `overflow-x: auto` force `overflow-y` à `auto`, et tout dépassement créerait
+  une barre de défilement verticale parasite. Son badge a sa propre palette,
+  mais **pas ses propres seuils** : ceux-ci viennent de `getDaysChip`, sans quoi
+  le carousel divergerait du filtre `badges`, qui s'appuie sur le même type.
 - **`getGridOptions()` annonce `rows: 'auto'`, jamais un nombre**
   (`helpers/grid.ts`, `gridOptionsFor`). Un nombre fait poser par
   `hui-grid-section` la classe `fit-rows`, qui applique une hauteur **dure** de

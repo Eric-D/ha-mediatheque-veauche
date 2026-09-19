@@ -46,6 +46,12 @@ export interface GridOptions {
 }
 
 export function gridOptionsFor(mode: CardMode | undefined): GridOptions {
+  if (mode === 'carousel') {
+    // 'full' plutôt que 12 : la bande est conçue pour occuper la largeur de la
+    // section, et sa hauteur ne dépend pas de sa largeur — elle ne gagne rien
+    // à être réduite, elle perd des couvertures visibles.
+    return { columns: 'full', rows: 'auto', min_rows: 2 };
+  }
   return {
     columns: 12,
     // Le mode couvertures reste lisible plus étroit : ses tuiles se replient,
@@ -64,5 +70,7 @@ export function gridOptionsFor(mode: CardMode | undefined): GridOptions {
     Purement indicative : elle sert à équilibrer les colonnes, et ne rogne
     rien. C'est pourquoi le débordement ne se produisait qu'en mode sections. */
 export function cardSizeFor(mode: CardMode | undefined): number {
-  return mode === 'covers' ? 2 : 4;
+  // Le carousel vaut 2 comme les couvertures : une centaine de pixels, soit
+  // deux unités de 50.
+  return mode === 'covers' || mode === 'carousel' ? 2 : 4;
 }

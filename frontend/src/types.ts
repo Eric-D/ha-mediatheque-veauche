@@ -17,7 +17,7 @@ export const ALL_BADGES: readonly BadgeType[] = [
   'unknown',
 ] as const;
 
-export type CardMode = 'list' | 'covers';
+export type CardMode = 'list' | 'covers' | 'carousel';
 
 // Aliases acceptés pour rétro-compat (anciens dashboards) — normalisés vers
 // les modes canoniques dans setConfig. Important : ne JAMAIS retirer un alias,
@@ -28,7 +28,7 @@ export const MODE_ALIASES: Record<string, CardMode> = {
   due: 'covers',
 };
 
-export const ALL_MODES: readonly CardMode[] = ['list', 'covers'] as const;
+export const ALL_MODES: readonly CardMode[] = ['list', 'covers', 'carousel'] as const;
 
 export interface MediathequeConfig {
   type?: string;
@@ -38,6 +38,11 @@ export interface MediathequeConfig {
   badges?: BadgeType[];
   total_entity?: string;
   card_id?: string;
+  // Mode carousel uniquement. Bornes et défauts appliqués par setConfig, qui
+  // tolère et journalise plutôt que de lever : une valeur aberrante sur un
+  // champ optionnel ne doit jamais rendre la carte irrécupérable.
+  cover_height?: number;
+  hide_ok_badges?: boolean;
 }
 
 // Les champs optionnels arrivent en `null` depuis Python, pas en `undefined` :

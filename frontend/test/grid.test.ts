@@ -10,12 +10,19 @@ import { describe, test } from 'node:test';
 import { cardSizeFor, gridOptionsFor } from '../src/helpers/grid.ts';
 
 describe('gridOptionsFor', () => {
+  test('le carousel occupe la largeur pleine', () => {
+    // Sa hauteur ne dépend pas de sa largeur : le réduire ne gagne rien et
+    // coûte des couvertures visibles.
+    assert.equal(gridOptionsFor('carousel').columns, 'full');
+    assert.equal(gridOptionsFor('carousel').min_rows, 2);
+  });
+
   test('la hauteur est toujours « auto », jamais un nombre', () => {
     // Un nombre fait poser par hui-grid-section la classe `fit-rows`, qui
     // applique une hauteur DURE de `rows * (56 + 8) - 8` px. Le contenu plus
     // haut déborde, et la grille place la carte suivante juste après cette
     // hauteur — donc par-dessus le débordement.
-    for (const mode of ['list', 'covers', undefined] as const) {
+    for (const mode of ['list', 'covers', 'carousel', undefined] as const) {
       assert.equal(gridOptionsFor(mode).rows, 'auto', `mode ${mode}`);
     }
   });
@@ -23,7 +30,7 @@ describe('gridOptionsFor', () => {
   test('aucun mode ne réintroduit une hauteur chiffrée', () => {
     // La garde porte sur le type, pas sur une valeur : c'est « un nombre »
     // qui casse, quel qu'il soit.
-    for (const mode of ['list', 'covers', undefined] as const) {
+    for (const mode of ['list', 'covers', 'carousel', undefined] as const) {
       assert.notEqual(typeof gridOptionsFor(mode).rows, 'number', `mode ${mode}`);
     }
   });
@@ -50,6 +57,8 @@ describe('cardSizeFor', () => {
     // getCardSize ne sert qu'à équilibrer les colonnes et ne rogne rien :
     // c'est pourquoi le débordement ne se produisait qu'en mode sections.
     assert.equal(cardSizeFor('covers'), 2);
+    // Une centaine de pixels, soit deux unités de 50.
+    assert.equal(cardSizeFor('carousel'), 2);
     assert.equal(cardSizeFor('list'), 4);
     assert.equal(cardSizeFor(undefined), 4);
   });
