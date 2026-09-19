@@ -1,4 +1,5 @@
 /** Éléments partagés par les fonctions de rendu. */
+import { html, type TemplateResult } from 'lit';
 
 /** Couverture de repli, inlinée : la carte doit fonctionner hors ligne. */
 export const PLACEHOLDER_SVG =
@@ -8,3 +9,22 @@ export const PLACEHOLDER_SVG =
 export const onCoverError = (e: Event): void => {
   (e.target as HTMLImageElement).src = PLACEHOLDER_SVG;
 };
+
+/** Couverture d'un prêt, avec son repli et son chargement différé.
+
+    Partagée par la tuile du mode couvertures et celle du carousel : c'est la
+    seule partie réellement commune aux deux. Le reste — palette du badge,
+    marqueur « lu », dimensions — diffère assez pour qu'une fonction unique
+    demande quatre drapeaux, et un drapeau de rendu se trompe en silence.
+
+    `alt` est vide à dessein : le titre est porté par l'aria-label du bouton
+    qui l'enveloppe, et le répéter ferait lire deux fois la même chose. */
+export function renderCoverImage(coverUrl: string | null | undefined, className: string): TemplateResult {
+  return html`<img
+    class=${className}
+    src=${coverUrl || PLACEHOLDER_SVG}
+    alt=""
+    loading="lazy"
+    @error=${onCoverError}
+  />`;
+}

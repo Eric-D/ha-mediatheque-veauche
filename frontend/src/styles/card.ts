@@ -132,6 +132,98 @@ export const cardStyles = css`
     font-weight: 600;
     white-space: nowrap;
   }
+  /* --- Mode carousel ------------------------------------------------- */
+  .mc-car-row {
+    display: flex;
+    align-items: center;
+  }
+  .mc-car-strip {
+    flex: 1 1 auto;
+    /* Sans min-width:0, un enfant flex refuse de rétrécir sous sa taille de
+       contenu : la bande pousserait la tuile code-barres hors de la carte au
+       lieu de défiler. */
+    min-width: 0;
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mc-car-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .mc-car-tile {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    scroll-snap-align: start;
+    /* Visible tant que la couverture n'est pas chargée, et sous une image qui
+       ne couvre pas tout à fait. Pas d'ombre portée ici : overflow-x:auto
+       force overflow-y à auto, et tout dépassement créerait une barre de
+       défilement verticale parasite dans une bande de 76 px. */
+    background: #2b3a4f;
+  }
+  .mc-car-tile.is-read {
+    /* Le liseré est intérieur : l'image se retire de 2 px et le fond vert
+       forme le cadre. Une bordure extérieure décalerait les tuiles voisines,
+       et un outline déborderait dans la zone de défilement. */
+    padding: 2px;
+    background: var(--success-color, #4caf50);
+  }
+  .mc-car-tile.is-read .mc-car-cover {
+    border-radius: 2px;
+  }
+  .mc-car-cover {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .mc-car-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .mc-car-barcode {
+    flex: 0 0 auto;
+    width: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: var(--secondary-background-color, #2e2e2e);
+    color: var(--primary-text-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .mc-car-barcode ha-icon {
+    --mdc-icon-size: 24px;
+  }
+  .mc-car-empty {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--secondary-text-color);
+  }
+  .mc-car-tile:focus-visible,
+  .mc-car-barcode:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
   .empty-state {
     padding: 24px 16px;
     text-align: center;

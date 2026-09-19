@@ -16,6 +16,12 @@ import {
   type MembersMap,
 } from './types.js';
 import { getDaysChip } from './helpers/days-chip.js';
+import {
+  COVER_HEIGHT_DEFAULT,
+  COVER_HEIGHT_MAX,
+  COVER_HEIGHT_MIN,
+  renderCarousel,
+} from './renders/carousel.js';
 import { cardSizeFor, gridOptionsFor, type GridOptions } from './helpers/grid.js';
 import { RetryScheduler } from './helpers/retry.js';
 import { renderBookRow, renderTile } from './renders/book.js';
@@ -138,6 +144,44 @@ export class MediathequeCard extends LitElement {
       }
     }
 
+    // Tolérant et journalisé, comme les autres champs optionnels : une hauteur
+    // aberrante ne doit pas rendre la carte irrécupérable depuis l'interface.
+    let coverHeight: number | undefined;
+    if (config.cover_height !== undefined) {
+      const raw = config.cover_height;
+      if (
+        typeof raw !== 'number' ||
+        !Number.isInteger(raw) ||
+        raw < COVER_HEIGHT_MIN ||
+        raw > COVER_HEIGHT_MAX
+      ) {
+        mcLog(
+          'warn',
+          'card',
+          "'cover_height' doit être un entier entre %d et %d, ignoré (reçu : %o)",
+          COVER_HEIGHT_MIN,
+          COVER_HEIGHT_MAX,
+          raw
+        );
+      } else {
+        coverHeight = raw;
+      }
+    }
+
+    let hideOkBadges: boolean | undefined;
+    if (config.hide_ok_badges !== undefined) {
+      if (typeof config.hide_ok_badges !== 'boolean') {
+        mcLog(
+          'warn',
+          'card',
+          "'hide_ok_badges' doit être un booléen, ignoré (reçu : %o)",
+          config.hide_ok_badges
+        );
+      } else {
+        hideOkBadges = config.hide_ok_badges;
+      }
+    }
+
     mcLog(
       'info',
       'card',
@@ -154,6 +198,8 @@ export class MediathequeCard extends LitElement {
       entity,
       mode: normalizedMode,
       badges: normalizedBadges,
+      cover_height: coverHeight,
+      hide_ok_badges: hideOkBadges,
     };
 
     // Changer d'entité invalide tout ce qui a été rendu jusqu'ici : sans ce
@@ -412,9 +458,11 @@ export class MediathequeCard extends LitElement {
     const hasFilter = !!this._config.badges;
 
     const tpl =
-      mode === 'covers'
-        ? this._renderCovers(state, enabledBadges, hasFilter, title)
-        : this._renderList(state, enabledBadges, hasFilter, title);
+      mode === 'carousel'
+        ? this._renderCarousel(state, enabledBadges, hasFilter)
+        : mode === 'covers'
+          ? this._renderCovers(state, enabledBadges, hasFilter, title)
+          : this._renderList(state, enabledBadges, hasFilter, title);
 
     this._lastTemplate = tpl;
     this._hasRendered = true;
@@ -432,6 +480,53 @@ export class MediathequeCard extends LitElement {
       return true;
     }
     return enabled.includes(getDaysChip(loan.days_left).type);
+  }
+
+  /** Bande de couvertures, sans en-tête.
+
+      `title` n'est pas pris en paramètre : le mode n'a pas d'en-tête, et le
+      recevoir pour l'ignorer inviterait à l'afficher « pour faire bien ».
+
+      `cardId` est recalculé ici, avec la même chaîne de repli que les autres
+      modes : c'est lui qui conditionne la tuile code-barres. Chaque mode de
+      rendu doit le calculer — l'oublier fait disparaître le bouton sans autre
+      symptôme. */
+  private _renderCarousel(
+    state: HassEntityState,
+    enabledBadges: BadgeType[],
+    hasFilter: boolean
+  ): TemplateResult {
+    const attrs = (state.attributes ?? {}) as DueAttributes & AllAttributes;
+    // Les deux formes d'entité, comme le mode couvertures : 'livres' sur les
+    // capteurs filtrés, 'membres' sur le capteur principal qu'on aplatit.
+    const livres: Loan[] = attrs.livres ?? Object.values(attrs.membres ?? {}).flat();
+    const filtered = hasFilter
+      ? livres.filter((l) => this._matchesBadgeFilter(l, enabledBadges))
+      : livres;
+
+    const totalState = this._totalEntityState;
+    // '||' et non '??' : un card_id vide doit continuer la chaîne de repli,
+    // sinon la tuile code-barres disparaît au lieu de chercher plus loin.
+    const cardId =
+      attrs.card_id ||
+      (totalState?.attributes as { card_id?: string } | undefined)?.card_id ||
+      this._config?.card_id ||
+      '';
+
+    return html`
+      <ha-card>
+        ${renderStaleNotice(attrs)}
+        ${renderCarousel({
+          loans: filtered,
+          cardId,
+          coverHeight: this._config?.cover_height ?? COVER_HEIGHT_DEFAULT,
+          hideOkBadges: this._config?.hide_ok_badges ?? false,
+          onDetail: this._openDetail,
+          onBarcode: this._openBarcode,
+        })}
+        ${this._renderModals(cardId)}
+      </ha-card>
+    `;
   }
 
   private _renderCovers(

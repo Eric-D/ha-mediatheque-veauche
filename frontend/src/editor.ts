@@ -19,6 +19,8 @@ const EDITOR_LABELS: Record<string, string> = {
   badges: 'Filtres par badge',
   total_entity: 'Entité du total (mode "couvertures")',
   card_id: 'Identifiant carte',
+  cover_height: 'Hauteur des couvertures (mode "carousel", 56–120 px)',
+  hide_ok_badges: 'Masquer les badges au-delà de 7 jours (mode "carousel")',
 };
 
 // Constante de module : si l'identité du tableau change à chaque render,
@@ -39,6 +41,7 @@ const EDITOR_SCHEMA = [
         options: [
           { value: 'list', label: 'Liste (groupée par membre)' },
           { value: 'covers', label: 'Couvertures (grille à rendre)' },
+          { value: 'carousel', label: 'Carousel (bande basse, sans en-tête)' },
         ],
       },
     },
@@ -60,9 +63,12 @@ const EDITOR_SCHEMA = [
     selector: { entity: { domain: 'sensor', integration: 'mediatheque_veauche' } },
   },
   { name: 'card_id', selector: { text: {} } },
+  {
+    name: 'cover_height',
+    selector: { number: { min: 56, max: 120, step: 1, mode: 'slider' } },
+  },
+  { name: 'hide_ok_badges', selector: { boolean: {} } },
 ] as const;
-
-const computeEditorLabel = (s: { name: string }): string => EDITOR_LABELS[s.name] ?? s.name;
 
 interface ValueChangedEvent extends CustomEvent {
   detail: { value: MediathequeConfig };
@@ -90,11 +96,23 @@ export class MediathequeCardEditor extends LitElement {
         .hass=${this.hass}
         .data=${this._config}
         .schema=${EDITOR_SCHEMA}
-        .computeLabel=${computeEditorLabel}
+        .computeLabel=${this._computeLabel}
         @value-changed=${this._valueChanged}
       ></ha-form>
     `;
   }
+
+  /** Champ de méthode et non fonction de module : il doit lire le mode
+      courant, tout en gardant une identité stable d'un rendu à l'autre. Un
+      schéma dynamique — masquer le titre plutôt que l'annoter — reconstruirait
+      ha-form à chaque frappe et lui ferait perdre le focus. */
+  private _computeLabel = (s: { name: string }): string => {
+    const base = EDITOR_LABELS[s.name] ?? s.name;
+    if (s.name === 'title' && this._config?.mode === 'carousel') {
+      return `${base} (sans effet en mode carousel)`;
+    }
+    return base;
+  };
 
   private _valueChanged(ev: ValueChangedEvent): void {
     const next = { ...ev.detail.value } as Record<string, unknown>;
