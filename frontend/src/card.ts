@@ -16,6 +16,7 @@ import {
   type MembersMap,
 } from './types.js';
 import { getDaysChip } from './helpers/days-chip.js';
+import { cardSizeFor, gridOptionsFor, type GridOptions } from './helpers/grid.js';
 import { RetryScheduler } from './helpers/retry.js';
 import { renderBookRow, renderTile } from './renders/book.js';
 import { renderHeader, renderLoader, renderStaleNotice } from './renders/chrome.js';
@@ -29,13 +30,6 @@ import { cardStyles } from './styles/card.js';
 import { modalStyles } from './styles/modal.js';
 
 import './editor.js';
-
-interface GridOptions {
-  columns: number;
-  min_columns: number;
-  rows: number;
-  min_rows: number;
-}
 
 export class MediathequeCard extends LitElement {
   static override styles = [cardStyles, modalStyles];
@@ -221,17 +215,11 @@ export class MediathequeCard extends LitElement {
   }
 
   public getCardSize(): number {
-    return this._config?.mode === 'covers' ? 2 : 4;
+    return cardSizeFor(this._config?.mode);
   }
 
   public getGridOptions(): GridOptions {
-    const isCovers = this._config?.mode === 'covers';
-    return {
-      columns: 12,
-      min_columns: isCovers ? 4 : 6,
-      rows: isCovers ? 2 : 4,
-      min_rows: 2,
-    };
+    return gridOptionsFor(this._config?.mode);
   }
 
   public override connectedCallback(): void {
