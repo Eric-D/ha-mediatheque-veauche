@@ -198,6 +198,10 @@ export const cardStyles = css`
   }
   .mc-car-barcode {
     flex: 0 0 auto;
+    /* Ancre la bulle du compteur, qui déborde volontairement du bouton. Le
+       débordement tient dans le padding de 12 px de la rangée : rien ne le
+       rogne. */
+    position: relative;
     width: 44px;
     padding: 0;
     border: 0;
@@ -211,6 +215,26 @@ export const cardStyles = css`
   }
   .mc-car-barcode ha-icon {
     --mdc-icon-size: 24px;
+  }
+  .mc-car-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: var(--primary-color);
+    color: var(--text-primary-color, #fff);
+    font-size: 11px;
+    line-height: 18px;
+    font-weight: 700;
+    text-align: center;
+    /* Détache la bulle du bouton quand les deux fonds sont proches — un thème
+       clair peut donner un secondary-background presque aussi vif que
+       l'accent. */
+    box-shadow: 0 0 0 2px var(--ha-card-background, var(--card-background-color, #1c1c1c));
   }
   .mc-car-empty {
     flex: 1 1 auto;
