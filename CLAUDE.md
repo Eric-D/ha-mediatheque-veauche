@@ -132,6 +132,24 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   être ré-évalué au retour de veille.
 - **`window.customCards.push`** (fin de module de `card.ts`) : nécessaire au sélecteur
   de cartes. Rien en CI ne détecterait sa suppression.
+- **`getGridOptions()` annonce `rows: 'auto'`, jamais un nombre**
+  (`helpers/grid.ts`, `gridOptionsFor`). Un nombre fait poser par
+  `hui-grid-section` la classe `fit-rows`, qui applique une hauteur **dure** de
+  `rows × (56 + 8) − 8` px. Le contenu plus haut déborde de la boîte, et la
+  grille place la carte suivante juste après cette hauteur — donc **par-dessus
+  le débordement**. Symptôme observé en septembre 2026 : une carte posée sous
+  la nôtre recouvrait la fin de la liste des emprunts. La hauteur d'une carte
+  d'emprunts dépend du nombre de livres, qu'aucune constante ne connaît ; ne
+  pas y remettre un nombre pour « réserver de la place ». `'auto'` est
+  d'ailleurs le défaut de Home Assistant (`DEFAULT_GRID_SIZE`), et
+  `computeCardGridSize` le laisse passer sans le soumettre au clamp de
+  `min_rows`. Ce dernier est conservé : il ne borne plus que la poignée de
+  redimensionnement de l'éditeur. `getCardSize()` (masonry) reste un nombre —
+  ce n'est qu'une estimation pour équilibrer les colonnes, elle ne rogne rien,
+  et c'est pourquoi le débordement ne se produisait qu'en mode sections.
+  **Attention** : une carte que l'utilisateur a redimensionnée à la main porte
+  un `grid_options.rows` dans le YAML du tableau de bord, qui l'emporte sur le
+  nôtre — le correctif ne l'atteint pas, il faut réinitialiser la taille.
 - **L'événement `mediatheque-card-update`** est émis après chaque rendu effectif
   (`card.ts`, `updated`). C'est un contrat public pour les plugins tiers — card-mod
   notamment — sans aucun consommateur dans ce dépôt : personne ne verra sa
@@ -142,6 +160,12 @@ Ces trois-là ressemblent à des oublis. Ne pas les « corriger ».
   sept `setTimeout` pour la réparation des cartes d'erreur orphelines, qui ne
   dépendent d'aucun élément et ne sont annulés par rien — légitime, ils sont à
   usage unique et plafonnés à quatre secondes.
+
+Les dimensions annoncées vivent dans `helpers/grid.ts` et non dans la classe :
+`card.ts` est hors d'atteinte du runner de tests — il utilise des décorateurs,
+que le dépouillement de types de Node refuse — donc le défaut de hauteur fixe
+n'était couvert par rien. Même motif que la sortie de `coordinator.py` de sa
+closure côté Python.
 
 `frontend/src/card.ts` fait environ 790 lignes, pour un objectif affiché de 300.
 Les rendus purement présentatifs vivent dans `renders/` : ils ne touchent pas à
