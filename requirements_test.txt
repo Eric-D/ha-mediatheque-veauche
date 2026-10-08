@@ -1,14 +1,23 @@
-# Outillage de test uniquement.
+# Outillage de test, plus la seule dépendance runtime que le manifeste ne peut
+# pas porter.
 #
-# Les dépendances runtime (beautifulsoup4, requests) ne sont PAS recopiées
-# ici : elles viennent du manifeste via scripts/manifest_requirements.py, pour
-# qu'un bump du manifeste ne laisse pas la CI valider contre un plancher
-# périmé.
+# beautifulsoup4 n'est PAS recopié ici : il vient du manifeste via
+# scripts/manifest_requirements.py, pour qu'un bump du manifeste ne laisse pas
+# la CI valider contre un plancher périmé.
+#
+# requests fait exception depuis octobre 2026 : hassfest refuse qu'un manifeste
+# d'intégration personnalisée liste une dépendance du cœur de Home Assistant,
+# et requests en est une (requirements.txt du cœur). Il est donc retiré du
+# manifeste — HA le fournit de toute façon à l'exécution — mais il reste
+# nécessaire ici, où HA n'est pas installé : scraper.py l'importe.
+# Volontairement non borné : la borne n'aurait plus rien à verrouiller, le
+# manifeste ne la déclarant plus.
 #
 # Home Assistant en est absent volontairement : tests/conftest.py le simule,
 # les tests ne portant que sur le scraping et les fonctions pures. Le job
 # « import-check » de la CI l'installe, lui, pour de vrai.
 pytest>=8.0.0
+requests
 # Épinglé, contrairement à Home Assistant dans le job import-check : là, un
 # échec signifie que l'amont a cassé l'intégration, c'est le signal recherché.
 # Ici il signifierait que l'amont a une nouvelle opinion sur le style — du bruit

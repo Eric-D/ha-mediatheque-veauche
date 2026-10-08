@@ -10,6 +10,11 @@ Restent deux choses que hassfest ignore et qui ne se voient autrement qu'à
 l'installation ou après publication : le plancher de version annoncé à HACS, et
 la cohérence des numéros de version entre les fichiers que le workflow de
 release met à jour par substitution.
+
+S'y ajoute un cliquet sur `requests` : hassfest le voit, mais seulement dans la
+CI, et il a mis une semaine d'exécutions quotidiennes en échec avant qu'on le
+remarque. Le rattraper ici le fait échouer à la seconde, sur le poste de qui
+écrit la régression.
 """
 from __future__ import annotations
 
@@ -108,3 +113,49 @@ class TestVersionsAreSynchronised:
             ROOT / "custom_components/mediatheque_veauche/www/mediatheque-card.js"
         ).read_text("utf-8")
         assert f'"{MANIFEST["version"]}"' in bundle
+
+
+class TestCoreDependenciesStayOutOfTheManifest:
+    """hassfest refuse qu'un manifeste personnalisé liste une dépendance du
+    cœur de Home Assistant — `requests` en est une, et le contrôle est arrivé
+    en amont début octobre 2026.
+
+    Le test ne vaut que pour `requests` : énumérer ici le requirements.txt du
+    cœur donnerait une liste figée qui dériverait au premier bump, et qui
+    mentirait d'autant plus qu'elle aurait l'air exhaustive. hassfest, lui,
+    lit la vraie liste à chaque exécution. On ne duplique donc pas son travail,
+    on verrouille le seul cas qu'on a déjà payé.
+    """
+
+    def test_requests_is_not_declared(self):
+        """Home Assistant le fournit : le déclarer fait échouer hassfest, et
+        l'intégration fonctionne sans puisque le cœur l'installe."""
+        names = [re.split(r"[<>=!~\[]", req, maxsplit=1)[0].strip().lower()
+                 for req in MANIFEST["requirements"]]
+
+        assert "requests" not in names, (
+            "requests est une dépendance du cœur de Home Assistant : hassfest "
+            "rejette un manifeste qui la liste. Elle vit dans "
+            "requirements_test.txt, où elle sert aux tests."
+        )
+
+    def test_the_scraper_still_gets_requests_for_the_tests(self):
+        """Retirer requests du manifeste le retire aussi de
+        manifest-requirements.txt, qui est ce que la CI installe. Sans ce
+        relais dans requirements_test.txt, tout test important scraper.py
+        échouerait à la collecte."""
+        declared = (ROOT / "requirements_test.txt").read_text("utf-8")
+
+        assert re.search(r"^requests\b", declared, re.MULTILINE), (
+            "requests a disparu de requirements_test.txt : les tests qui "
+            "importent scraper.py ne pourront plus être collectés."
+        )
+
+    def test_beautifulsoup_stays_in_the_manifest(self):
+        """Elle n'est PAS une dépendance du cœur : la déplacer par symétrie
+        avec requests priverait l'intégration de sa seule dépendance réelle à
+        l'installation."""
+        names = [re.split(r"[<>=!~\[]", req, maxsplit=1)[0].strip().lower()
+                 for req in MANIFEST["requirements"]]
+
+        assert "beautifulsoup4" in names

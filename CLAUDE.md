@@ -604,11 +604,38 @@ Cette dernière ligne est celle qu'on oublie le plus souvent : le bundle commit�
 doit correspondre au build, et la CI échoue sinon. `--exit-code --stat` plutôt
 que `--quiet`, qui sort en 1 sans rien afficher.
 
-Les deux commandes du milieu sont nécessaires : les dépendances runtime
-(`beautifulsoup4`, `requests`) ne sont pas recopiées dans
-`requirements_test.txt`, elles viennent du manifeste, qui en est l'unique
-source de vérité. Home Assistant n'est pas installé — `tests/conftest.py` le
-simule. Le job `import-check` de la CI l'installe, lui, pour de vrai.
+Les deux commandes du milieu sont nécessaires : `beautifulsoup4` n'est pas
+recopié dans `requirements_test.txt`, il vient du manifeste, qui en est
+l'unique source de vérité. Home Assistant n'est pas installé —
+`tests/conftest.py` le simule. Le job `import-check` de la CI l'installe, lui,
+pour de vrai.
+
+### `requests` ne doit pas figurer dans le manifeste
+
+**Une dépendance du cœur de Home Assistant n'a rien à faire dans le manifeste
+d'une intégration personnalisée**, et hassfest le refuse depuis début octobre
+2026 : il compare les `requirements` du manifeste au `requirements.txt` du
+cœur, où `requests` figure. Le laisser a mis sept exécutions quotidiennes en
+échec d'affilée.
+
+`requests` vit donc dans `requirements_test.txt`, et nulle part ailleurs. Ce
+n'est pas une entorse à la règle « le manifeste est l'unique source de
+vérité » : à l'exécution, c'est **Home Assistant** qui est la source, et il
+l'installe de toute façon. Le fichier de test n'en est qu'un relais pour une
+suite qui tourne sans HA — `scraper.py` l'importe, et sans ce relais aucun test
+le touchant ne serait même collecté. La borne de version a disparu avec le
+reste : elle ne verrouillerait plus rien, le manifeste ne la déclarant plus.
+
+**`beautifulsoup4` reste dans le manifeste** : elle n'est pas une dépendance du
+cœur. La déplacer « par symétrie » priverait l'intégration de sa seule
+dépendance réelle à l'installation.
+
+`tests/test_manifest.py::TestCoreDependenciesStayOutOfTheManifest` verrouille
+les trois points. Le cliquet ne porte que sur `requests` : énumérer ici le
+`requirements.txt` du cœur donnerait une liste figée qui dériverait au premier
+bump, et qui mentirait d'autant plus qu'elle aurait l'air exhaustive. hassfest
+lit la vraie liste à chaque exécution — mais seulement en CI, et c'est bien
+pour ça que le cas déjà payé est rattrapé ici, à la seconde.
 
 ## Version minimale de Home Assistant
 
