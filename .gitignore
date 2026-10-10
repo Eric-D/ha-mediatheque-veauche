@@ -20,3 +20,7 @@ frontend/node_modules/
 
 # généré par scripts/manifest_requirements.py
 manifest-requirements.txt
+
+# Dépendances locales du générateur de captures
+scripts/screenshots/node_modules/
+scripts/screenshots/package*.json

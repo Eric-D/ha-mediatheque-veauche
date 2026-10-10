@@ -21,6 +21,10 @@ Intégration Home Assistant pour afficher les emprunts de la [médiathèque de V
 
 ## Installation
 
+> 📖 **[Tutoriel d'installation pas à pas, avec captures d'écran](docs/INSTALLATION.md)**
+> — de zéro à une carte qui affiche vos emprunts, en dix minutes. Si c'est
+> votre première installation, commencez par là.
+
 ### Manuelle
 
 1. Copier le dossier `custom_components/mediatheque_veauche/` dans votre dossier `config/custom_components/`
